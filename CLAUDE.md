@@ -132,6 +132,8 @@ Do not "fix" this by widening the window or triggering on coexisting opposing po
 - **Basket SL:** close all at `BasketSL_USD` (default −$10 scaled).
 - **Basket trailing:** once basket P/L ≥ `TrailActivate_USD`, trail a locked floor at `BasketP/L − TrailDistance_USD`; close all if floor is hit.
 - Unfilled same-direction pendings are deleted once basket trailing activates (stop adding into an extended move).
+- **Scaling (implemented v1.9):** effective TP / SL / activate / distance = input USD × (total filled volume ÷ 0.01). Floating P/L includes swap; commission lives on deals and is not counted.
+- **Post-exit cooldown (v1.9):** every basket exit (TP, SL, trail floor) transitions to `COOLDOWN` for **60 s** before returning to IDLE — distinct from the whipsaw cooldown — so any re-entry must re-pass all five gates. Trail floor persists in a global variable and survives restart; it resets only on return to IDLE.
 
 ---
 

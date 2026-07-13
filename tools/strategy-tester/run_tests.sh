@@ -57,12 +57,15 @@ for INI in "$HERE/configs/"*.ini; do
     WIN_CFG="C:\\Program Files\\MetaTrader 5\\hydra_configs\\$NAME"
     echo "------------------------------------------------------------"
     echo "Running $NAME ..."
+    # Wine prints copious harmless err:/fixme: diagnostics to stderr;
+    # divert them to a log so the terminal shows only real output.
     if [ -n "$WINE_BIN" ]; then
         WINEPREFIX="$WINEPREFIX_DIR" "$WINE_BIN" \
-            "C:\\Program Files\\MetaTrader 5\\terminal64.exe" "/config:$WIN_CFG"
+            "C:\\Program Files\\MetaTrader 5\\terminal64.exe" "/config:$WIN_CFG" \
+            2>>"$HERE/wine_noise.log"
     else
         # Fallback: launch through the app bundle and pass args through
-        open -W -a "$MT5_APP" --args "/config:$WIN_CFG"
+        open -W -a "$MT5_APP" --args "/config:$WIN_CFG" 2>>"$HERE/wine_noise.log"
     fi
     echo "Finished $NAME"
 done
