@@ -1,0 +1,27 @@
+; Hydra scenario 03 — TTL expiry with zero fills
+; GridTTLMin=2 for a fast test; FirstLevelOffsetUSD widened to 3.00 so
+; price (hopefully) never reaches level 1 in a quiet market; ATR floor
+; lowered to 0.10 so the grid deploys even in low volatility.
+; Expect: deploy -> 2 min -> all 18 pendings deleted -> back to IDLE.
+AUTO_TRADING_ENABLED=true
+MagicNumber=20260713
+GridLevels=9
+GridSpacingUSD=0.70
+FirstLevelOffsetUSD=3.00
+LotProgressionCSV=0.01,0.01,0.02,0.02,0.02,0.03,0.04,0.04,0.05
+OCO_Mode=true
+GridTTLMin=2
+BasketTP_USD=15.0
+BasketSL_USD=10.0
+TrailActivate_USD=8.0
+TrailDistance_USD=4.0
+Session1=07:00-10:00
+Session2=12:00-15:00
+ATR_Min_USD=0.10
+ATR_Max_USD=8.0
+MaxSpreadPoints=35
+MinMarginLevelPct=500.0
+MaxDailyLossPct=3.0
+WhipsawWindowSec=300
+WhipsawCooldownMin=60
+MaxWhipsawsPerDay=2

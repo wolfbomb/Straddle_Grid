@@ -1,0 +1,31 @@
+; Hydra scenario 04 — WHIPSAW GUARD (the Phase 5 gate test)
+; ⚠ TEST-ONLY SETTINGS — gates 2/3 deliberately loosened so the news
+; candle can trigger both sides. NEVER use these on a demo/live chart.
+;   OCO_Mode=false        -> opposite side stays armed (whipsaw possible)
+;   ATR_Max_USD=999       -> volatility gate can't block the spike
+;   MaxSpreadPoints=300   -> news spread blowout can't block deploy
+;   GridTTLMin=240        -> grid survives from deploy until the news hits
+; Expect on a violent two-sided candle: WHIPSAW DETECTED -> all positions
+; closed, all pendings deleted -> COOLDOWN (1/2 today). Account flat.
+AUTO_TRADING_ENABLED=true
+MagicNumber=20260713
+GridLevels=9
+GridSpacingUSD=0.70
+FirstLevelOffsetUSD=0.50
+LotProgressionCSV=0.01,0.01,0.02,0.02,0.02,0.03,0.04,0.04,0.05
+OCO_Mode=false
+GridTTLMin=240
+BasketTP_USD=15.0
+BasketSL_USD=10.0
+TrailActivate_USD=8.0
+TrailDistance_USD=4.0
+Session1=07:00-10:00
+Session2=12:00-15:00
+ATR_Min_USD=1.5
+ATR_Max_USD=999.0
+MaxSpreadPoints=300
+MinMarginLevelPct=500.0
+MaxDailyLossPct=3.0
+WhipsawWindowSec=300
+WhipsawCooldownMin=60
+MaxWhipsawsPerDay=2

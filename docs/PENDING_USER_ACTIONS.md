@@ -1,5 +1,9 @@
 # PENDING_USER_ACTIONS.md — Your Test Queue
 
+> 🚀 **Shortcut:** most tester scenarios below are automated in `tools/strategy-tester/` —
+> edit two paths in `run_tests.bat`, double-click, send back the reports + tester logs.
+> See `tools/strategy-tester/README.md`. Manual steps below remain valid as the reference.
+
 > Everything currently waiting on you (the user, at your MT5 PC).
 > Current build: `Straddle_Grid.mq5` **v1.6** (Phases 1–5: skeleton, gates, grid deploy/expiry,
 > direction lock & OCO, Whipsaw Guard; v1.6 = GridSpacingUSD default 0.70 for VT Markets + gate
