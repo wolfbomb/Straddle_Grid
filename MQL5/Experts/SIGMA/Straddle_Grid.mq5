@@ -7,8 +7,9 @@
 //| progression. Spec: CLAUDE.md (repo root). Build plan:            |
 //| PHASE_PROMPTS.md. Tests: docs/CHECKLIST.md.                      |
 //|                                                                  |
-//| Phase 2 — Safety Gates (on the Phase 1 skeleton).                |
-//| This build compiles clean and still trades NOTHING.              |
+//| Phase 3 — Grid Deploy & Expiry (on Phases 1–2).                  |
+//| First build that can place orders — ONLY when all five gates     |
+//| pass, which requires AUTO_TRADING_ENABLED=true (default false).  |
 //|                                                                  |
 //| Section order (SIGMA convention, CLAUDE.md §9):                  |
 //|   Inputs → Globals/State → OnInit (state recovery) →             |
@@ -57,7 +58,7 @@ input int     MaxWhipsawsPerDay    = 2;
 //+------------------------------------------------------------------+
 //| ===================== GLOBALS / STATE =========================== |
 //+------------------------------------------------------------------+
-#define HYDRA_VERSION        "v1.1"          // single source of truth — dashboard header reads this
+#define HYDRA_VERSION        "v1.2"          // single source of truth — dashboard header reads this
 #define HYDRA_COMMENT_PREFIX "SIGMA.Hydra"   // order comment prefix (SIGMA convention)
 
 // Persistent global-variable keys (namespaced SIGMA.Hydra.<symbol>.<key>,
@@ -93,6 +94,11 @@ int    g_atrHandle   = INVALID_HANDLE;      // ATR(14, M5) for gate 2
 int    g_sess1Start = -1, g_sess1End = -1;  // session windows in minutes-of-day (GMT/server)
 int    g_sess2Start = -1, g_sess2End = -1;
 bool   g_sessionsValid = false;             // false = malformed input, gate 1 always fails
+
+//--- Grid (CLAUDE.md §7)
+datetime g_armedAt         = 0;             // deployment time = TTL anchor; recovered on restart
+datetime g_lastArmedCheck  = 0;             // 1 Hz throttle for ARMED management
+string   g_lastDeployAbort = "";            // last deploy-abort reason (log on change only)
 
 //+------------------------------------------------------------------+
 //| ================== ONINIT (STATE RECOVERY) ====================== |
@@ -157,7 +163,11 @@ void RecoverState()
    if(positions > 0)
       SetState(STATE_ACTIVE, StringFormat("recovery: %d open position(s), %d pending(s) found", positions, pendings));
    else if(pendings > 0)
-      SetState(STATE_ARMED, StringFormat("recovery: %d pending order(s) found, zero fills", pendings));
+     {
+      g_armedAt = EarliestHydraOrderSetup();   // restore the TTL anchor from order timestamps
+      SetState(STATE_ARMED, StringFormat("recovery: %d pending order(s) found, zero fills; TTL anchor %s",
+                                         pendings, TimeToString(g_armedAt, TIME_DATE|TIME_SECONDS)));
+     }
    else if(cooldownUntil > TimeCurrent())
       SetState(STATE_COOLDOWN, StringFormat("recovery: cooldown active until %s",
                                             TimeToString(cooldownUntil, TIME_DATE|TIME_SECONDS)));
@@ -196,15 +206,47 @@ void OnTick()
          bool   pass = EvaluateGates(failReason);
          LogGateStatusOnChange(pass, failReason);
          if(pass)
-           {
-            // Phase 3 will call DeployGrid() here. Phase 2: log only.
-           }
+            DeployGrid();   // aborts cleanly (logged) on any invalid level; ARMED on success
          break;
         }
 
       case STATE_ARMED:
         {
-         // Phase 3: TTL expiry + gate re-check + fill monitoring
+         if(TimeCurrent() == g_lastArmedCheck)
+            break;
+         g_lastArmedCheck = TimeCurrent();
+
+         // Fill safety net: Phase 4's OnTradeTransaction will own this transition;
+         // until then a polling fallback keeps the state machine consistent.
+         if(CountHydraPositions() > 0)
+           {
+            SetState(STATE_ACTIVE, "fill detected (polling fallback — Phase 4 adds OnTradeTransaction)");
+            break;
+           }
+
+         // TTL expiry with zero fills -> cancel grid, back to IDLE (CLAUDE.md §7)
+         if(g_armedAt > 0 && TimeCurrent() - g_armedAt >= (long)GridTTLMin * 60)
+           {
+            DeleteAllHydraPendings();
+            SetState(STATE_IDLE, StringFormat("grid TTL %d min expired with zero fills", GridTTLMin));
+            break;
+           }
+
+         // Broker-side ORDER_TIME_SPECIFIED expiry may have removed the orders already
+         if(CountHydraOrders() == 0)
+           {
+            SetState(STATE_IDLE, "pendings no longer present (broker-side expiry)");
+            break;
+           }
+
+         // Re-check gates 1 (session), 3 (spread), 5 (master switch) while ARMED
+         string r = "";
+         if(!GateSession(r) || !GateSpread(r) || !GateMasterSwitch(r))
+           {
+            DeleteAllHydraPendings();
+            SetState(STATE_IDLE, "grid cancelled — gate failed while ARMED: " + r);
+            break;
+           }
          break;
         }
 
@@ -412,12 +454,150 @@ bool GateMasterSwitch(string &reason)
 
 //+------------------------------------------------------------------+
 //| ======================= GRID DEPLOY ============================= |
-//| Phase 3: validated deployment, abort-on-partial, rollback, TTL.  |
+//| CLAUDE.md §7: symmetric stop-order grid around the current mid.  |
+//| ALL levels are validated BEFORE the first send — any invalid     |
+//| level aborts the entire deployment (no partial grids). A send    |
+//| failure mid-deployment rolls back every order already placed.    |
 //+------------------------------------------------------------------+
 bool DeployGrid()
   {
-   HydraLog("DeployGrid: not implemented (Phase 3)");
-   return(false);
+   MqlTick tick;
+   if(!SymbolInfoTick(_Symbol, tick))
+     {
+      LogDeployAbortOnChange("SymbolInfoTick failed");
+      return(false);
+     }
+
+   double anchor    = NormalizePrice((tick.bid + tick.ask) / 2.0);
+   long   stopsLvl  = SymbolInfoInteger(_Symbol, SYMBOL_TRADE_STOPS_LEVEL);
+   long   freezeLvl = SymbolInfoInteger(_Symbol, SYMBOL_TRADE_FREEZE_LEVEL);
+   double minDist   = MathMax(stopsLvl, freezeLvl) * _Point;
+   double minBuy    = tick.ask + minDist;   // buy stops must sit at/above this
+   double maxSell   = tick.bid - minDist;   // sell stops must sit at/below this
+
+   // --- Pre-flight: compute and validate every level BEFORE sending anything
+   int    n = ArraySize(g_lots);
+   double buyPx[], sellPx[];
+   ArrayResize(buyPx, n);
+   ArrayResize(sellPx, n);
+   for(int i = 0; i < n; i++)
+     {
+      buyPx[i]  = NormalizePrice(anchor + FirstLevelOffsetUSD + i * GridSpacingUSD);
+      sellPx[i] = NormalizePrice(anchor - FirstLevelOffsetUSD - i * GridSpacingUSD);
+      if(buyPx[i] < minBuy)
+        {
+         LogDeployAbortOnChange(StringFormat("buy level %d @ %.2f violates min distance (ask %.2f + stops/freeze %.2f)",
+                                             i, buyPx[i], tick.ask, minDist));
+         return(false);
+        }
+      if(sellPx[i] > maxSell || sellPx[i] <= 0.0)
+        {
+         LogDeployAbortOnChange(StringFormat("sell level %d @ %.2f violates min distance (bid %.2f - stops/freeze %.2f)",
+                                             i, sellPx[i], tick.bid, minDist));
+         return(false);
+        }
+     }
+
+   // Broker-side expiry where supported; the code TTL in ARMED applies regardless
+   bool     useSpecified = (SymbolInfoInteger(_Symbol, SYMBOL_EXPIRATION_MODE) & SYMBOL_EXPIRATION_SPECIFIED) != 0;
+   datetime expiration   = useSpecified ? TimeCurrent() + (long)GridTTLMin * 60 : 0;
+
+   // --- Placement: any send failure rolls back the whole deployment
+   for(int i = 0; i < n; i++)
+     {
+      if(!PlaceStopOrder(true, i, buyPx[i], g_lots[i], expiration, useSpecified))
+        {
+         RollbackDeployment();
+         return(false);
+        }
+      if(!PlaceStopOrder(false, i, sellPx[i], g_lots[i], expiration, useSpecified))
+        {
+         RollbackDeployment();
+         return(false);
+        }
+     }
+
+   g_armedAt          = TimeCurrent();
+   g_lastDeployAbort  = "";
+   SetState(STATE_ARMED, StringFormat("grid deployed: %d+%d stops around %.2f, spacing %.2f, TTL %d min",
+                                      n, n, anchor, GridSpacingUSD, GridTTLMin));
+   return(true);
+  }
+
+//--- Single pending stop order, SIGMA-tagged (IOC, magic, comment prefix)
+bool PlaceStopOrder(const bool isBuy, const int level, const double price, const double lot,
+                    const datetime expiration, const bool useSpecified)
+  {
+   MqlTradeRequest req;
+   MqlTradeResult  res;
+   ZeroMemory(req);
+   ZeroMemory(res);
+   req.action       = TRADE_ACTION_PENDING;
+   req.symbol       = _Symbol;
+   req.volume       = lot;
+   req.type         = isBuy ? ORDER_TYPE_BUY_STOP : ORDER_TYPE_SELL_STOP;
+   req.price        = price;
+   req.magic        = (ulong)MagicNumber;
+   req.comment      = StringFormat("%s.%s%d", HYDRA_COMMENT_PREFIX, isBuy ? "B" : "S", level);
+   req.type_filling = ORDER_FILLING_IOC;                                  // SIGMA convention #2
+   req.type_time    = useSpecified ? ORDER_TIME_SPECIFIED : ORDER_TIME_GTC;
+   req.expiration   = expiration;
+
+   bool sent = OrderSend(req, res);
+   if(!sent || (res.retcode != TRADE_RETCODE_DONE && res.retcode != TRADE_RETCODE_PLACED))
+     {
+      HydraLog(StringFormat("OrderSend FAIL: %s level %d @ %.2f lot %.2f — retcode %d (%s)",
+                            isBuy ? "BUY_STOP" : "SELL_STOP", level, price, lot, res.retcode, res.comment));
+      return(false);
+     }
+   return(true);
+  }
+
+//--- Mid-deployment failure: remove every Hydra pending placed so far.
+//    Gate 4 guarantees zero pre-existing Hydra orders, so a full sweep
+//    deletes exactly this deployment's orders.
+void RollbackDeployment()
+  {
+   HydraLog("deployment FAILED mid-placement — rolling back all Hydra pendings");
+   int left = DeleteAllHydraPendings();
+   HydraLog(StringFormat("rollback done, %d Hydra pending(s) remaining", left));
+  }
+
+//--- Delete all Hydra pendings (this symbol + magic), up to 3 sweeps.
+//    Returns the number still present afterwards (0 = clean).
+int DeleteAllHydraPendings()
+  {
+   for(int attempt = 0; attempt < 3; attempt++)
+     {
+      for(int i = OrdersTotal() - 1; i >= 0; i--)
+        {
+         ulong ticket = OrderGetTicket(i);
+         if(ticket == 0 || !IsHydraOrder())
+            continue;
+         MqlTradeRequest req;
+         MqlTradeResult  res;
+         ZeroMemory(req);
+         ZeroMemory(res);
+         req.action = TRADE_ACTION_REMOVE;
+         req.order  = ticket;
+         if(!OrderSend(req, res) || res.retcode != TRADE_RETCODE_DONE)
+            HydraLog(StringFormat("delete pending #%I64u failed — retcode %d (sweep %d)", ticket, res.retcode, attempt + 1));
+        }
+      if(CountHydraOrders() == 0)
+         return(0);
+     }
+   int left = CountHydraOrders();
+   HydraLog(StringFormat("WARNING: %d Hydra pending(s) still present after delete sweeps", left));
+   return(left);
+  }
+
+//--- Deploy-abort reasons repeat at 1 Hz while gates stay green: log on change only
+void LogDeployAbortOnChange(const string reason)
+  {
+   if(reason == g_lastDeployAbort)
+      return;
+   g_lastDeployAbort = reason;
+   HydraLog("deployment ABORTED — " + reason);
   }
 
 //+------------------------------------------------------------------+
@@ -607,6 +787,31 @@ bool ParseSessionWindow(const string window, int &startMin, int &endMin)
    startMin = s;
    endMin   = e;
    return(true);
+  }
+
+//--- Snap a price to the symbol tick size, then to digits
+double NormalizePrice(const double price)
+  {
+   double tickSize = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE);
+   if(tickSize > 0.0)
+      return(NormalizeDouble(MathRound(price / tickSize) * tickSize, _Digits));
+   return(NormalizeDouble(price, _Digits));
+  }
+
+//--- Oldest ORDER_TIME_SETUP among Hydra pendings — restores the TTL
+//    anchor after a terminal restart while ARMED
+datetime EarliestHydraOrderSetup()
+  {
+   datetime earliest = 0;
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(OrderGetTicket(i) == 0 || !IsHydraOrder())
+         continue;
+      datetime ts = (datetime)OrderGetInteger(ORDER_TIME_SETUP);
+      if(earliest == 0 || ts < earliest)
+         earliest = ts;
+     }
+   return(earliest);
   }
 
 //--- "HH:MM" -> minutes-of-day, or -1 if malformed

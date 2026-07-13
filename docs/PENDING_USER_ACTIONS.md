@@ -1,9 +1,11 @@
 # PENDING_USER_ACTIONS.md — Your Test Queue
 
 > Everything currently waiting on you (the user, at your MT5 PC).
-> Current build: `Straddle_Grid.mq5` **v1.1** (Phase 1 skeleton + Phase 2 safety gates — still trades nothing).
-> Phases 1 and 2 are tested together in one sitting. When these pass, report back →
-> I bump to v1.2, commit "Phase 2 complete" (covering both phases), and start Phase 3 (grid deploy).
+> Current build: `Straddle_Grid.mq5` **v1.2** (Phase 1 skeleton + Phase 2 gates + Phase 3 grid deploy/expiry).
+> ⚠ From this build on, the EA CAN place orders — but only with `AUTO_TRADING_ENABLED=true`
+> and all five gates passing. Test in the Strategy Tester / demo only.
+> Phases 1–3 are tested together in one sitting. When these pass, report back →
+> I bump to v1.3, commit "Phase 3 complete" (covering all three), and start Phase 4 (direction lock & OCO).
 
 ---
 
@@ -23,7 +25,7 @@ default inputs (leave `AUTO_TRADING_ENABLED = false`).
 
 Check the Journal/Experts log for:
 
-- [ ] EA initializes: `[HYDRA]` line `SIGMA Hydra v1.1 initializing on XAUUSD-VIP (magic 20260713)`.
+- [ ] EA initializes: `[HYDRA]` line `SIGMA Hydra v1.2 initializing on XAUUSD-VIP (magic 20260713)`.
 - [ ] Lot progression line: `9 levels/side, 0.24 lots/side if fully filled`.
 - [ ] Symbol spec line (minLot / lotStep / stopsLevel / tickSize / tickValue) — **note these values
       down and send them to me**; I need them to sanity-check the Phase 3 grid-spacing defaults
@@ -77,15 +79,32 @@ Full list in `docs/CHECKLIST.md` §Phase 2. The quick version (tester, one recen
 - [ ] **Short-circuit:** while gate 1 is failing, no gate 2–5 reasons appear in any log line
       (later gates are never evaluated).
 
-## 6. State recovery — ARMED / ACTIVE paths (deferrable)
+## 6. Phase 3 — grid deploy & expiry tests
 
-These need orders/positions tagged with magic `20260713`, which nothing can create yet
-(the EA places no orders in Phase 1, and manual trades carry magic 0).
+Full list in `docs/CHECKLIST.md` §Phase 3. Tester, real ticks, `AUTO_TRADING_ENABLED=true`,
+pick a date/time inside a session window so gates can pass:
 
-- **Option A (recommended):** defer to Phase 3/4 — the moment the EA can place its own grid,
-  restart-recovery becomes directly testable and is on the Phase 3/4 checklists anyway.
-- **Option B:** ask me for a tiny throwaway helper script that places one magic-tagged
-  pending order on demo so you can verify ARMED recovery now.
+- [ ] **Deployment:** on gates PASS, exactly 9 buy stops above and 9 sell stops below the anchor
+      appear at once; journal shows `grid deployed: 9+9 stops around <anchor>`. Spot-check 2–3
+      prices against the formula `anchor ± (0.50 + i × 0.42)` and lots against the progression;
+      comments read `SIGMA.Hydra.B0…B8 / S0…S8`.
+- [ ] **Stops-level abort:** set `FirstLevelOffsetUSD = 0.0` (and if your stops level is 0, also
+      `GridSpacingUSD` tiny) → journal shows `deployment ABORTED — … violates min distance`,
+      zero orders ever placed, state stays IDLE. Restore defaults after.
+- [ ] **TTL expiry:** set `GridTTLMin = 2`, deploy in a quiet period (or widen
+      `FirstLevelOffsetUSD` so nothing fills) → after 2 min all 18 pendings deleted,
+      log `grid TTL 2 min expired with zero fills`, state back to IDLE, then a fresh grid
+      may deploy while gates still pass.
+- [ ] **Gate re-check while ARMED:** deploy near the end of a session window → at window close,
+      log `grid cancelled — gate failed while ARMED`, all pendings deleted.
+- [ ] **No partial grids:** at every moment the Hydra pending count is 0 or 18, never in between
+      (scan the tester journal / orders tab).
+- [ ] **ARMED restart recovery (demo chart, optional but valuable):** let a grid deploy on demo,
+      remove and re-attach the EA → log `recovery: 18 pending order(s) found … TTL anchor …`,
+      no duplicate grid placed.
+- [ ] If price reaches a stop during these runs, the EA logs a transition to ACTIVE via the
+      polling fallback — that's expected; full fill handling is Phase 4. Whipsaw Guard does not
+      exist yet, so don't leave it running unattended with auto-trading on.
 
 ## 7. Report back
 
@@ -93,10 +112,10 @@ Send me:
 
 1. Compile result (0/0 or the exact messages).
 2. The symbol-spec log line values (item 2, third bullet).
-3. Pass/fail on items 2–5 (screenshots or pasted log lines are perfect).
+3. Pass/fail on items 2–6 (screenshots or pasted log lines are perfect).
 
-Then I will: bump `HYDRA_VERSION` → `v1.2`, commit `Phase 2 complete — … (v1.2)` to main
-(covering Phases 1+2), and immediately proceed to **Phase 3 — grid deploy & expiry**.
+Then I will: bump `HYDRA_VERSION` → `v1.3`, commit `Phase 3 complete — … (v1.3)` to main
+(covering Phases 1–3), and immediately proceed to **Phase 4 — direction lock & OCO**.
 
 ---
 
@@ -104,7 +123,7 @@ Then I will: bump `HYDRA_VERSION` → `v1.2`, commit `Phase 2 complete — … (
 
 | When | Task |
 |---|---|
-| Phase 3 done | Verify grid levels vs. hand-computed prices; stops-level abort test; TTL expiry test |
+| Phase 4 done | Fill/OCO tests: first fill locks direction, opposite side cancelled; restart mid-ACTIVE recovery |
 | Phase 5 done | Whipsaw candle test on a violent news bar — must pass before Phase 6 code is accepted |
 | Phase 7 | 3-month real-tick backtest incl. one NFP + one FOMC day; download tick history beforehand |
 | Pre-live | 1-week demo soak with `AUTO_TRADING_ENABLED = true` (see final checklist in `docs/CHECKLIST.md`) |
