@@ -38,7 +38,12 @@ WINE_BIN="$(find "$MT5_APP/Contents" -type f \( -name 'wine64' -o -name 'wine' \
 
 echo "Copying presets and configs into the Wine prefix ..."
 mkdir -p "$DATA_DIR/MQL5/Presets" "$MT5_DIR_C/hydra_configs"
-cp -f "$HERE/presets/"*.set  "$DATA_DIR/MQL5/Presets/"
+# MT5 expects .set preset files in UTF-16LE (with BOM); a plain UTF-8
+# file is silently ignored and the run falls back to default inputs.
+for SET in "$HERE/presets/"*.set; do
+    NAME="$(basename "$SET")"
+    { printf '\xff\xfe'; iconv -f UTF-8 -t UTF-16LE "$SET"; } > "$DATA_DIR/MQL5/Presets/$NAME"
+done
 cp -f "$HERE/configs/"*.ini "$MT5_DIR_C/hydra_configs/"
 
 echo
