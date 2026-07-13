@@ -20,3 +20,4 @@ MQL5/Profiles/Tester/
 # OS noise
 .DS_Store
 Thumbs.db
+wine_noise.log
