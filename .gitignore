@@ -1,0 +1,22 @@
+# Compiled MQL5 binaries
+*.ex5
+*.ex4
+
+# MetaEditor / terminal artifacts
+*.log
+logs/
+Tester/
+tester/
+*.opt
+*.set.bak
+
+# Strategy Tester caches and reports
+*.tst
+*.fxt
+MQL5/Files/
+MQL5/Logs/
+MQL5/Profiles/Tester/
+
+# OS noise
+.DS_Store
+Thumbs.db
