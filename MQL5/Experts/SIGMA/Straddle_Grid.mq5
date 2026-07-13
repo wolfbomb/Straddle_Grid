@@ -7,9 +7,9 @@
 //| progression. Spec: CLAUDE.md (repo root). Build plan:            |
 //| PHASE_PROMPTS.md. Tests: docs/CHECKLIST.md.                      |
 //|                                                                  |
-//| Phase 3 — Grid Deploy & Expiry (on Phases 1–2).                  |
-//| First build that can place orders — ONLY when all five gates     |
-//| pass, which requires AUTO_TRADING_ENABLED=true (default false).  |
+//| Phase 4 — Direction Lock & OCO (on Phases 1–3).                  |
+//| Places orders ONLY when all five gates pass, which requires      |
+//| AUTO_TRADING_ENABLED=true (default false).                       |
 //|                                                                  |
 //| Section order (SIGMA convention, CLAUDE.md §9):                  |
 //|   Inputs → Globals/State → OnInit (state recovery) →             |
@@ -58,7 +58,7 @@ input int     MaxWhipsawsPerDay    = 2;
 //+------------------------------------------------------------------+
 //| ===================== GLOBALS / STATE =========================== |
 //+------------------------------------------------------------------+
-#define HYDRA_VERSION        "v1.2"          // single source of truth — dashboard header reads this
+#define HYDRA_VERSION        "v1.3"          // single source of truth — dashboard header reads this
 #define HYDRA_COMMENT_PREFIX "SIGMA.Hydra"   // order comment prefix (SIGMA convention)
 
 // Persistent global-variable keys (namespaced SIGMA.Hydra.<symbol>.<key>,
@@ -99,6 +99,13 @@ bool   g_sessionsValid = false;             // false = malformed input, gate 1 a
 datetime g_armedAt         = 0;             // deployment time = TTL anchor; recovered on restart
 datetime g_lastArmedCheck  = 0;             // 1 Hz throttle for ARMED management
 string   g_lastDeployAbort = "";            // last deploy-abort reason (log on change only)
+
+//--- Direction lock & fill records (Phase 4; consumed by Whipsaw Guard in Phase 5)
+int      g_lockedDir         = 0;           // 0 = none, +1 = buy side, -1 = sell side
+int      g_fillCount         = 0;           // entry fills in the current grid cycle
+datetime g_lastBuyFill       = 0;           // most recent buy-side entry fill time
+datetime g_lastSellFill      = 0;           // most recent sell-side entry fill time
+bool     g_ocoCleanupPending = false;       // opposite-side deletion outstanding (retried each tick)
 
 //+------------------------------------------------------------------+
 //| ================== ONINIT (STATE RECOVERY) ====================== |
@@ -161,7 +168,20 @@ void RecoverState()
    datetime cooldownUntil = (datetime)(long)GVGet(GV_COOLDOWN_UNTIL, 0.0);
 
    if(positions > 0)
-      SetState(STATE_ACTIVE, StringFormat("recovery: %d open position(s), %d pending(s) found", positions, pendings));
+     {
+      // Reconstruct the direction lock and fill records (Phase 4):
+      // lock from open positions, fill history from deals since the
+      // earliest open position, OCO cleanup flag from leftover pendings.
+      g_lockedDir = DeriveDirectionFromPositions();
+      RecoverFillHistory(EarliestHydraPositionTime() - 60);
+      if(OCO_Mode && CountOppositePendings() > 0)
+         g_ocoCleanupPending = true;
+      SetState(STATE_ACTIVE, StringFormat("recovery: %d open position(s), %d pending(s); direction %s, %d fill(s)%s",
+                                          positions, pendings,
+                                          g_lockedDir > 0 ? "BUY" : (g_lockedDir < 0 ? "SELL" : "UNKNOWN"),
+                                          g_fillCount,
+                                          g_ocoCleanupPending ? ", OCO cleanup pending" : ""));
+     }
    else if(pendings > 0)
      {
       g_armedAt = EarliestHydraOrderSetup();   // restore the TTL anchor from order timestamps
@@ -216,11 +236,18 @@ void OnTick()
             break;
          g_lastArmedCheck = TimeCurrent();
 
-         // Fill safety net: Phase 4's OnTradeTransaction will own this transition;
-         // until then a polling fallback keeps the state machine consistent.
+         // OnTradeTransaction owns the ARMED->ACTIVE transition; this polling
+         // fallback only catches a missed transaction event (e.g. terminal hiccup).
          if(CountHydraPositions() > 0)
            {
-            SetState(STATE_ACTIVE, "fill detected (polling fallback — Phase 4 adds OnTradeTransaction)");
+            if(g_lockedDir == 0)
+              {
+               g_lockedDir = DeriveDirectionFromPositions();
+               if(OCO_Mode)
+                  g_ocoCleanupPending = true;
+              }
+            SetState(STATE_ACTIVE, StringFormat("fill detected via polling fallback — direction %s",
+                                                g_lockedDir > 0 ? "BUY" : "SELL"));
             break;
            }
 
@@ -256,6 +283,8 @@ void OnTick()
          // before any other management logic. Never reorder.
          if(CheckWhipsawGuard())
             break;                            // guard fired — state already moved to COOLDOWN
+         if(g_ocoCleanupPending)
+            CancelOppositeSide();             // OCO: retry until the opposite side is clear
          ManageBasket();                      // Phase 6
          break;
         }
@@ -268,6 +297,121 @@ void OnTick()
          break;
         }
      }
+  }
+
+//+------------------------------------------------------------------+
+//| ============ FILL DETECTION (OnTradeTransaction) ================ |
+//| Phase 4: entry fills lock the direction (ARMED -> ACTIVE) and    |
+//| are recorded per side for the Whipsaw Guard (Phase 5).           |
+//+------------------------------------------------------------------+
+void OnTradeTransaction(const MqlTradeTransaction &trans,
+                        const MqlTradeRequest &request,
+                        const MqlTradeResult &result)
+  {
+   if(trans.type != TRADE_TRANSACTION_DEAL_ADD)
+      return;
+   if(trans.symbol != _Symbol)
+      return;
+   if(!HistoryDealSelect(trans.deal))
+     {
+      HydraLog(StringFormat("WARNING: deal #%I64u not selectable yet — polling fallback will catch the fill", trans.deal));
+      return;
+     }
+   if(HistoryDealGetInteger(trans.deal, DEAL_MAGIC) != MagicNumber)
+      return;
+   if(HistoryDealGetInteger(trans.deal, DEAL_ENTRY) != DEAL_ENTRY_IN)
+      return;   // exits/adjustments don't lock direction and aren't whipsaw fills
+
+   long dealType = HistoryDealGetInteger(trans.deal, DEAL_TYPE);
+   if(dealType != DEAL_TYPE_BUY && dealType != DEAL_TYPE_SELL)
+      return;
+
+   RegisterFill(dealType == DEAL_TYPE_BUY,
+                (datetime)HistoryDealGetInteger(trans.deal, DEAL_TIME),
+                HistoryDealGetDouble(trans.deal, DEAL_VOLUME),
+                HistoryDealGetDouble(trans.deal, DEAL_PRICE));
+  }
+
+//--- Record an entry fill; first fill locks the direction and (in OCO
+//    mode) schedules deletion of the entire opposite side
+void RegisterFill(const bool isBuy, const datetime fillTime, const double volume, const double price)
+  {
+   g_fillCount++;
+   if(isBuy)
+      g_lastBuyFill = fillTime;
+   else
+      g_lastSellFill = fillTime;
+
+   HydraLog(StringFormat("fill %d/%d: %s %.2f @ %.2f", g_fillCount, GridLevels,
+                         isBuy ? "BUY" : "SELL", volume, price));
+
+   if(g_lockedDir == 0)
+     {
+      g_lockedDir = isBuy ? 1 : -1;
+      if(OCO_Mode)
+        {
+         g_ocoCleanupPending = true;
+         CancelOppositeSide();   // immediate attempt; ACTIVE loop retries any failures
+        }
+      if(g_state == STATE_ARMED)
+         SetState(STATE_ACTIVE, StringFormat("first fill — direction locked %s%s",
+                                             isBuy ? "BUY" : "SELL",
+                                             OCO_Mode ? ", OCO cancel issued" : ", reversal hedge kept (OCO off)"));
+      else
+         HydraLog(StringFormat("WARNING: first fill arrived in state %s", StateName(g_state)));
+     }
+  }
+
+//--- OCO: delete every pending on the side opposite the locked direction.
+//    Failures leave g_ocoCleanupPending set so the ACTIVE loop retries.
+void CancelOppositeSide()
+  {
+   if(g_lockedDir == 0)
+     {
+      g_ocoCleanupPending = false;
+      return;
+     }
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      ulong ticket = OrderGetTicket(i);
+      if(ticket == 0 || !IsHydraOrder())
+         continue;
+      long type = OrderGetInteger(ORDER_TYPE);
+      bool opposite = (g_lockedDir > 0) ? (type == ORDER_TYPE_SELL_STOP)
+                                        : (type == ORDER_TYPE_BUY_STOP);
+      if(!opposite)
+         continue;
+      MqlTradeRequest req;
+      MqlTradeResult  res;
+      ZeroMemory(req);
+      ZeroMemory(res);
+      req.action = TRADE_ACTION_REMOVE;
+      req.order  = ticket;
+      if(!OrderSend(req, res) || res.retcode != TRADE_RETCODE_DONE)
+         HydraLog(StringFormat("OCO delete #%I64u failed — retcode %d (will retry)", ticket, res.retcode));
+     }
+   int left = CountOppositePendings();
+   g_ocoCleanupPending = (left > 0);
+   if(left == 0)
+      HydraLog("OCO: opposite side clear");
+  }
+
+//--- Pendings remaining on the side opposite the locked direction
+int CountOppositePendings()
+  {
+   if(g_lockedDir == 0)
+      return(0);
+   int count = 0;
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(OrderGetTicket(i) == 0 || !IsHydraOrder())
+         continue;
+      long type = OrderGetInteger(ORDER_TYPE);
+      if((g_lockedDir > 0 && type == ORDER_TYPE_SELL_STOP) ||
+         (g_lockedDir < 0 && type == ORDER_TYPE_BUY_STOP))
+         count++;
+     }
+   return(count);
   }
 
 //+------------------------------------------------------------------+
@@ -657,11 +801,26 @@ string StateName(const EHydraState s)
    return("UNKNOWN");
   }
 
-//--- Single choke point for state transitions: every transition is logged
+//--- Single choke point for state transitions: every transition is logged.
+//    Entering IDLE clears the per-grid-cycle runtime (lock, fills, TTL anchor).
 void SetState(const EHydraState newState, const string reason)
   {
    HydraLog(StringFormat("state %s -> %s (%s)", StateName(g_state), StateName(newState), reason));
    g_state = newState;
+   if(newState == STATE_IDLE)
+      ResetGridRuntime();
+  }
+
+//--- Per-cycle runtime reset (fill records stay intact through ACTIVE and
+//    COOLDOWN so the Whipsaw Guard can use them; cleared on return to IDLE)
+void ResetGridRuntime()
+  {
+   g_lockedDir         = 0;
+   g_fillCount         = 0;
+   g_lastBuyFill       = 0;
+   g_lastSellFill      = 0;
+   g_ocoCleanupPending = false;
+   g_armedAt           = 0;
   }
 
 //--- Persistent global variables, namespaced per symbol
@@ -812,6 +971,86 @@ datetime EarliestHydraOrderSetup()
          earliest = ts;
      }
    return(earliest);
+  }
+
+//--- Direction from open Hydra positions: side of the EARLIEST position
+//    (that is the fill that locked the direction). Warns on mixed sides.
+int DeriveDirectionFromPositions()
+  {
+   int      dir      = 0;
+   datetime earliest = 0;
+   bool     mixed    = false;
+   for(int i = PositionsTotal() - 1; i >= 0; i--)
+     {
+      if(PositionGetTicket(i) == 0 || !IsHydraPosition())
+         continue;
+      int      d  = (PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY) ? 1 : -1;
+      datetime pt = (datetime)PositionGetInteger(POSITION_TIME);
+      if(dir != 0 && d != dir)
+         mixed = true;
+      if(earliest == 0 || pt < earliest)
+        {
+         earliest = pt;
+         dir      = d;
+        }
+     }
+   if(mixed)
+      HydraLog("WARNING: mixed-direction Hydra positions found (whipsaw exposure?)");
+   return(dir);
+  }
+
+//--- Open time of the oldest Hydra position (start of the current basket)
+datetime EarliestHydraPositionTime()
+  {
+   datetime earliest = 0;
+   for(int i = PositionsTotal() - 1; i >= 0; i--)
+     {
+      if(PositionGetTicket(i) == 0 || !IsHydraPosition())
+         continue;
+      datetime pt = (datetime)PositionGetInteger(POSITION_TIME);
+      if(earliest == 0 || pt < earliest)
+         earliest = pt;
+     }
+   return(earliest);
+  }
+
+//--- Rebuild fill count + per-side fill times from deal history since
+//    `from` (restart mid-ACTIVE must not lose the whipsaw records)
+void RecoverFillHistory(const datetime from)
+  {
+   if(!HistorySelect(from, TimeCurrent() + 60))
+     {
+      HydraLog("WARNING: HistorySelect failed — fill history not recovered");
+      return;
+     }
+   int total = HistoryDealsTotal();
+   for(int i = 0; i < total; i++)
+     {
+      ulong ticket = HistoryDealGetTicket(i);
+      if(ticket == 0)
+         continue;
+      if(HistoryDealGetString(ticket, DEAL_SYMBOL) != _Symbol)
+         continue;
+      if(HistoryDealGetInteger(ticket, DEAL_MAGIC) != MagicNumber)
+         continue;
+      if(HistoryDealGetInteger(ticket, DEAL_ENTRY) != DEAL_ENTRY_IN)
+         continue;
+      long dealType = HistoryDealGetInteger(ticket, DEAL_TYPE);
+      if(dealType != DEAL_TYPE_BUY && dealType != DEAL_TYPE_SELL)
+         continue;
+      datetime t = (datetime)HistoryDealGetInteger(ticket, DEAL_TIME);
+      g_fillCount++;
+      if(dealType == DEAL_TYPE_BUY)
+        {
+         if(t > g_lastBuyFill)
+            g_lastBuyFill = t;
+        }
+      else
+        {
+         if(t > g_lastSellFill)
+            g_lastSellFill = t;
+        }
+     }
   }
 
 //--- "HH:MM" -> minutes-of-day, or -1 if malformed

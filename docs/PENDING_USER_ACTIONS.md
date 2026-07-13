@@ -1,11 +1,11 @@
 # PENDING_USER_ACTIONS.md — Your Test Queue
 
 > Everything currently waiting on you (the user, at your MT5 PC).
-> Current build: `Straddle_Grid.mq5` **v1.2** (Phase 1 skeleton + Phase 2 gates + Phase 3 grid deploy/expiry).
-> ⚠ From this build on, the EA CAN place orders — but only with `AUTO_TRADING_ENABLED=true`
-> and all five gates passing. Test in the Strategy Tester / demo only.
-> Phases 1–3 are tested together in one sitting. When these pass, report back →
-> I bump to v1.3, commit "Phase 3 complete" (covering all three), and start Phase 4 (direction lock & OCO).
+> Current build: `Straddle_Grid.mq5` **v1.3** (Phases 1–4: skeleton, gates, grid deploy/expiry, direction lock & OCO).
+> ⚠ The EA CAN place orders — but only with `AUTO_TRADING_ENABLED=true` and all five gates
+> passing. Test in the Strategy Tester / demo only, ATTENDED (Whipsaw Guard arrives in Phase 5).
+> Phases 1–4 are tested together in one sitting. When these pass, report back →
+> I bump to v1.4, commit "Phase 4 complete" (covering all four), and start Phase 5 (Whipsaw Guard).
 
 ---
 
@@ -25,7 +25,7 @@ default inputs (leave `AUTO_TRADING_ENABLED = false`).
 
 Check the Journal/Experts log for:
 
-- [ ] EA initializes: `[HYDRA]` line `SIGMA Hydra v1.2 initializing on XAUUSD-VIP (magic 20260713)`.
+- [ ] EA initializes: `[HYDRA]` line `SIGMA Hydra v1.3 initializing on XAUUSD-VIP (magic 20260713)`.
 - [ ] Lot progression line: `9 levels/side, 0.24 lots/side if fully filled`.
 - [ ] Symbol spec line (minLot / lotStep / stopsLevel / tickSize / tickValue) — **note these values
       down and send them to me**; I need them to sanity-check the Phase 3 grid-spacing defaults
@@ -102,20 +102,40 @@ pick a date/time inside a session window so gates can pass:
 - [ ] **ARMED restart recovery (demo chart, optional but valuable):** let a grid deploy on demo,
       remove and re-attach the EA → log `recovery: 18 pending order(s) found … TTL anchor …`,
       no duplicate grid placed.
-- [ ] If price reaches a stop during these runs, the EA logs a transition to ACTIVE via the
-      polling fallback — that's expected; full fill handling is Phase 4. Whipsaw Guard does not
-      exist yet, so don't leave it running unattended with auto-trading on.
+- [ ] If price reaches a stop during these runs, the EA transitions to ACTIVE with a
+      direction-lock log line — see the Phase 4 tests below. Whipsaw Guard does not exist yet,
+      so don't leave it running unattended with auto-trading on.
 
-## 7. Report back
+## 7. Phase 4 — direction lock & OCO tests
+
+Full list in `docs/CHECKLIST.md` §Phase 4. Tester, real ticks, `AUTO_TRADING_ENABLED=true`;
+pick a trending day (e.g. a session open with displacement) so stops actually fill:
+
+- [ ] **Direction lock:** when price hits the first stop, journal shows
+      `fill 1/9: BUY … @ …` (or SELL) then
+      `state ARMED -> ACTIVE (first fill — direction locked BUY, OCO cancel issued)`.
+- [ ] **OCO cancel (`OCO_Mode=true`, default):** within the same second, all 9 opposite-side
+      pendings are deleted (`OCO: opposite side clear`); the 8 remaining same-side stops stay.
+- [ ] **Sequential fills:** as the move extends, `fill 2/9`, `fill 3/9`… appear with correct
+      sides, lots, and prices.
+- [ ] **`OCO_Mode=false`:** repeat one run — after the first fill, all 9 opposite-side pendings
+      remain in place (reversal-hedge mode), log says `reversal hedge kept (OCO off)`.
+- [ ] **Restart mid-ACTIVE (demo chart):** while holding fills, remove and re-attach the EA →
+      log shows `recovery: N open position(s) … direction BUY, N fill(s)`, no duplicate grid,
+      no re-locked wrong direction. (§11 explicit case)
+- [ ] Note: with no basket exits yet (Phase 6), positions ride until you close them manually
+      or the tester run ends — expected at this phase.
+
+## 8. Report back
 
 Send me:
 
 1. Compile result (0/0 or the exact messages).
 2. The symbol-spec log line values (item 2, third bullet).
-3. Pass/fail on items 2–6 (screenshots or pasted log lines are perfect).
+3. Pass/fail on items 2–7 (screenshots or pasted log lines are perfect).
 
-Then I will: bump `HYDRA_VERSION` → `v1.3`, commit `Phase 3 complete — … (v1.3)` to main
-(covering Phases 1–3), and immediately proceed to **Phase 4 — direction lock & OCO**.
+Then I will: bump `HYDRA_VERSION` → `v1.4`, commit `Phase 4 complete — … (v1.4)` to main
+(covering Phases 1–4), and immediately proceed to **Phase 5 — Whipsaw Guard**.
 
 ---
 
@@ -123,7 +143,6 @@ Then I will: bump `HYDRA_VERSION` → `v1.3`, commit `Phase 3 complete — … (
 
 | When | Task |
 |---|---|
-| Phase 4 done | Fill/OCO tests: first fill locks direction, opposite side cancelled; restart mid-ACTIVE recovery |
 | Phase 5 done | Whipsaw candle test on a violent news bar — must pass before Phase 6 code is accepted |
 | Phase 7 | 3-month real-tick backtest incl. one NFP + one FOMC day; download tick history beforehand |
 | Pre-live | 1-week demo soak with `AUTO_TRADING_ENABLED = true` (see final checklist in `docs/CHECKLIST.md`) |
