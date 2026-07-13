@@ -102,6 +102,14 @@ Evaluated in `IDLE` before grid deployment. All five must pass.
 - If whipsaw counter ≥ `MaxWhipsawsPerDay` (default 2), remain in `COOLDOWN` until next trading day.
 - This logic must live in its own function `CheckWhipsawGuard()` called at the top of `OnTick` in `ACTIVE` state, before any other management logic.
 
+**Design note (2026-07-13, user decision):** a "slow whipsaw" — opposite-side fills more than
+`WhipsawWindowSec` apart with `OCO_Mode=false` (observed in tester: reversal 10.5 min after the
+first side filled) — deliberately does **not** trigger the guard. The 300 s window stands.
+Rationale: with the default `OCO_Mode=true` the opposite side is cancelled seconds after the
+first fill, so the hole barely exists; OCO-off is the discouraged reversal-hedge mode where
+opposing positions are intentional, and the Basket Manager (§7) governs the net exposure there.
+Do not "fix" this by widening the window or triggering on coexisting opposing positions.
+
 ---
 
 ## 7. Grid Mechanics
