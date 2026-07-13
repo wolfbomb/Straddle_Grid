@@ -1,8 +1,9 @@
 # PENDING_USER_ACTIONS.md — Your Test Queue
 
 > Everything currently waiting on you (the user, at your MT5 PC).
-> Current build: `Straddle_Grid.mq5` **v1.0** (Phase 1 — skeleton & state machine, trades nothing).
-> When these pass, report back → I bump to v1.1, commit "Phase 1 complete", and start Phase 2 (gates).
+> Current build: `Straddle_Grid.mq5` **v1.1** (Phase 1 skeleton + Phase 2 safety gates — still trades nothing).
+> Phases 1 and 2 are tested together in one sitting. When these pass, report back →
+> I bump to v1.2, commit "Phase 2 complete" (covering both phases), and start Phase 3 (grid deploy).
 
 ---
 
@@ -22,14 +23,17 @@ default inputs (leave `AUTO_TRADING_ENABLED = false`).
 
 Check the Journal/Experts log for:
 
-- [ ] EA initializes: `[HYDRA]` line `SIGMA Hydra v1.0 initializing on XAUUSD-VIP (magic 20260713)`.
+- [ ] EA initializes: `[HYDRA]` line `SIGMA Hydra v1.1 initializing on XAUUSD-VIP (magic 20260713)`.
 - [ ] Lot progression line: `9 levels/side, 0.24 lots/side if fully filled`.
 - [ ] Symbol spec line (minLot / lotStep / stopsLevel / tickSize / tickValue) — **note these values
       down and send them to me**; I need them to sanity-check the Phase 3 grid-spacing defaults
       for VT Markets XAUUSD-VIP.
 - [ ] Warning line that AUTO_TRADING_ENABLED is false.
 - [ ] State line: `state IDLE -> IDLE (recovery: clean slate)`.
-- [ ] Gate stub lines appear **at most once per second** (compare consecutive log timestamps).
+- [ ] Gate status lines (`gates FAIL — gate N (…): …`) appear **only when the status changes**
+      (e.g. at session open/close, ATR band crossings) — no once-per-second log spam.
+- [ ] With everything else passing, the final blocker is
+      `gates FAIL — gate 5 (MasterSwitch): AUTO_TRADING_ENABLED=false`.
 - [ ] **Zero orders placed** across the whole run (Trade/History tabs empty).
 - [ ] No errors in the journal.
 
@@ -52,7 +56,28 @@ Check the Journal/Experts log for:
 4. Set the variable to a past epoch → next tick logs `state COOLDOWN -> IDLE (cooldown expired)`.
 5. Delete the global variable when done.
 
-## 5. State recovery — ARMED / ACTIVE paths (deferrable)
+## 5. Phase 2 — gate behavior tests
+
+Full list in `docs/CHECKLIST.md` §Phase 2. The quick version (tester, one recent week, real ticks):
+
+- [ ] **Session gate:** run with default sessions → `gates FAIL — gate 1` outside 07:00–10:00 /
+      12:00–15:00 server time; status flips at window boundaries. Set `Session1 = "banana"` →
+      init warning + gate 1 always fails with "malformed session input".
+- [ ] **Volatility gate:** set `ATR_Max_USD = 0.01` → gate 2 fails "> max"; set
+      `ATR_Min_USD = 999` → gate 2 fails "< min". Restore defaults after.
+- [ ] **Spread gate:** in tester settings force spread = 100 (> `MaxSpreadPoints` 35) →
+      gate 3 fails. Set `GridSpacingUSD = 0.01` → gate 3 fails with the computed required
+      minimum in the log.
+- [ ] **Exposure gate:** hard to force in Phase 2 (needs Hydra orders) — the "existing
+      exposure" branch gets exercised naturally from Phase 3 on. Skip for now.
+- [ ] **Master switch:** with gates 1–4 passing (pick a time inside a session window),
+      confirm the chain stops at gate 5 while `AUTO_TRADING_ENABLED=false`; flip it to `true`
+      in the tester → log shows `gates PASS — deployment deferred (Phase 3)` and still
+      **zero orders**.
+- [ ] **Short-circuit:** while gate 1 is failing, no gate 2–5 reasons appear in any log line
+      (later gates are never evaluated).
+
+## 6. State recovery — ARMED / ACTIVE paths (deferrable)
 
 These need orders/positions tagged with magic `20260713`, which nothing can create yet
 (the EA places no orders in Phase 1, and manual trades carry magic 0).
@@ -62,16 +87,16 @@ These need orders/positions tagged with magic `20260713`, which nothing can crea
 - **Option B:** ask me for a tiny throwaway helper script that places one magic-tagged
   pending order on demo so you can verify ARMED recovery now.
 
-## 6. Report back
+## 7. Report back
 
 Send me:
 
 1. Compile result (0/0 or the exact messages).
 2. The symbol-spec log line values (item 2, third bullet).
-3. Pass/fail on items 2–4 (screenshots or pasted log lines are perfect).
+3. Pass/fail on items 2–5 (screenshots or pasted log lines are perfect).
 
-Then I will: bump `HYDRA_VERSION` → `v1.1`, commit `Phase 1 complete — … (v1.1)` to main,
-and immediately proceed to **Phase 2 — the five safety gates**.
+Then I will: bump `HYDRA_VERSION` → `v1.2`, commit `Phase 2 complete — … (v1.2)` to main
+(covering Phases 1+2), and immediately proceed to **Phase 3 — grid deploy & expiry**.
 
 ---
 
@@ -79,7 +104,6 @@ and immediately proceed to **Phase 2 — the five safety gates**.
 
 | When | Task |
 |---|---|
-| Phase 2 done | Re-run tester; force each gate to fail (inputs listed in `docs/CHECKLIST.md` §Phase 2) |
 | Phase 3 done | Verify grid levels vs. hand-computed prices; stops-level abort test; TTL expiry test |
 | Phase 5 done | Whipsaw candle test on a violent news bar — must pass before Phase 6 code is accepted |
 | Phase 7 | 3-month real-tick backtest incl. one NFP + one FOMC day; download tick history beforehand |

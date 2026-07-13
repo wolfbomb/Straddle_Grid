@@ -7,8 +7,8 @@
 //| progression. Spec: CLAUDE.md (repo root). Build plan:            |
 //| PHASE_PROMPTS.md. Tests: docs/CHECKLIST.md.                      |
 //|                                                                  |
-//| Phase 1 — Skeleton & State Machine.                              |
-//| This build compiles clean and trades NOTHING.                    |
+//| Phase 2 — Safety Gates (on the Phase 1 skeleton).                |
+//| This build compiles clean and still trades NOTHING.              |
 //|                                                                  |
 //| Section order (SIGMA convention, CLAUDE.md §9):                  |
 //|   Inputs → Globals/State → OnInit (state recovery) →             |
@@ -57,7 +57,7 @@ input int     MaxWhipsawsPerDay    = 2;
 //+------------------------------------------------------------------+
 //| ===================== GLOBALS / STATE =========================== |
 //+------------------------------------------------------------------+
-#define HYDRA_VERSION        "v1.0"          // single source of truth — dashboard header reads this
+#define HYDRA_VERSION        "v1.1"          // single source of truth — dashboard header reads this
 #define HYDRA_COMMENT_PREFIX "SIGMA.Hydra"   // order comment prefix (SIGMA convention)
 
 // Persistent global-variable keys (namespaced SIGMA.Hydra.<symbol>.<key>,
@@ -65,6 +65,8 @@ input int     MaxWhipsawsPerDay    = 2;
 #define GV_WHIPSAW_COUNT   "whipsaw_count"   // whipsaws fired today
 #define GV_WHIPSAW_DAY     "whipsaw_day"     // server day-stamp the counter belongs to
 #define GV_COOLDOWN_UNTIL  "cooldown_until"  // epoch time cooldown ends
+#define GV_DAY_STAMP       "day_stamp"       // server day the daily anchors belong to
+#define GV_DAY_BALANCE     "day_balance"     // balance snapshot at server-day start (gate 4)
 
 enum EHydraState
   {
@@ -77,6 +79,20 @@ enum EHydraState
 EHydraState g_state        = STATE_IDLE;
 double      g_lots[];                       // parsed LotProgressionCSV
 datetime    g_lastGateEval = 0;             // 1 Hz throttle for IDLE gate checks
+
+//--- Gates (CLAUDE.md §5): cached results for logging-on-change + dashboard (Phase 8)
+#define GATE_COUNT             5
+#define SPACING_BUFFER_POINTS  10           // safety buffer in gate-3 spacing validation
+string g_gateNames[GATE_COUNT] = {"Session","Volatility","Spread","Exposure","MasterSwitch"};
+bool   g_gatePass[GATE_COUNT];
+bool   g_gateEvaluated[GATE_COUNT];         // false when short-circuited before this gate
+string g_gateReason[GATE_COUNT];
+string g_lastGateStatus = "";               // last logged composite status (log on change only)
+
+int    g_atrHandle   = INVALID_HANDLE;      // ATR(14, M5) for gate 2
+int    g_sess1Start = -1, g_sess1End = -1;  // session windows in minutes-of-day (GMT/server)
+int    g_sess2Start = -1, g_sess2End = -1;
+bool   g_sessionsValid = false;             // false = malformed input, gate 1 always fails
 
 //+------------------------------------------------------------------+
 //| ================== ONINIT (STATE RECOVERY) ====================== |
@@ -112,6 +128,17 @@ int OnInit()
    if(!AUTO_TRADING_ENABLED)
       HydraLog("AUTO_TRADING_ENABLED is false — EA will never place orders until enabled (gate 5)");
 
+   // Gate 1: parse session windows once (malformed input -> gate fails, EA still runs)
+   g_sessionsValid = ParseSessionWindow(Session1, g_sess1Start, g_sess1End) &&
+                     ParseSessionWindow(Session2, g_sess2Start, g_sess2End);
+   if(!g_sessionsValid)
+      HydraLog(StringFormat("WARNING: malformed session window ('%s' / '%s') — gate 1 will always fail", Session1, Session2));
+
+   // Gate 2: ATR(14, M5) indicator handle
+   g_atrHandle = iATR(_Symbol, PERIOD_M5, 14);
+   if(g_atrHandle == INVALID_HANDLE)
+      HydraLog("WARNING: iATR(14,M5) handle creation failed — gate 2 will fail until available");
+
    RecoverState();
 
    return(INIT_SUCCEEDED);
@@ -141,6 +168,11 @@ void RecoverState()
 //+------------------------------------------------------------------+
 void OnDeinit(const int reason)
   {
+   if(g_atrHandle != INVALID_HANDLE)
+     {
+      IndicatorRelease(g_atrHandle);
+      g_atrHandle = INVALID_HANDLE;
+     }
    HydraLog(StringFormat("deinit (reason %d), state=%s", reason, StateName(g_state)));
   }
 
@@ -149,6 +181,8 @@ void OnDeinit(const int reason)
 //+------------------------------------------------------------------+
 void OnTick()
   {
+   UpdateDayAnchor();   // roll daily-loss anchor (gate 4) on server-day change
+
    switch(g_state)
      {
       case STATE_IDLE:
@@ -159,10 +193,11 @@ void OnTick()
          g_lastGateEval = TimeCurrent();
 
          string failReason = "";
-         if(EvaluateGates(failReason))
+         bool   pass = EvaluateGates(failReason);
+         LogGateStatusOnChange(pass, failReason);
+         if(pass)
            {
-            // Phase 3 will call DeployGrid() here. Phase 1/2: log only.
-            HydraLog("gates PASS — deployment deferred (Phase 3)");
+            // Phase 3 will call DeployGrid() here. Phase 2: log only.
            }
          break;
         }
@@ -195,15 +230,184 @@ void OnTick()
 
 //+------------------------------------------------------------------+
 //| ========================= GATES ================================ |
-//| Phase 2 implements the five ordered, short-circuiting gates      |
-//| (CLAUDE.md §5). Phase 1 stub: always fails, logs each evaluation |
-//| so the 1 Hz throttle is verifiable in the journal.               |
+//| Five ordered safety gates (CLAUDE.md §5), evaluated sequentially |
+//| with short-circuit: a failure stops evaluation — later gates are |
+//| NOT evaluated. Results cached for the dashboard (Phase 8).       |
+//| Status is logged on change only (no 1 Hz spam).                  |
 //+------------------------------------------------------------------+
 bool EvaluateGates(string &failReason)
   {
-   failReason = "gates not implemented until Phase 2";
-   HydraLog("gate evaluation (Phase 1 stub) — " + failReason);
+   for(int i = 0; i < GATE_COUNT; i++)
+     {
+      g_gateEvaluated[i] = false;
+      g_gatePass[i]      = false;
+      g_gateReason[i]    = "not evaluated";
+     }
+
+   string r = "";
+
+   // Gate 1 — Session / Killzone
+   bool ok = GateSession(r);
+   SetGateResult(0, ok, r);
+   if(!ok) { failReason = GateFailText(0, r); return(false); }
+
+   // Gate 2 — Volatility context
+   ok = GateVolatility(r);
+   SetGateResult(1, ok, r);
+   if(!ok) { failReason = GateFailText(1, r); return(false); }
+
+   // Gate 3 — Spread + spacing validity
+   ok = GateSpread(r);
+   SetGateResult(2, ok, r);
+   if(!ok) { failReason = GateFailText(2, r); return(false); }
+
+   // Gate 4 — Exposure / margin / daily loss
+   ok = GateExposure(r);
+   SetGateResult(3, ok, r);
+   if(!ok) { failReason = GateFailText(3, r); return(false); }
+
+   // Gate 5 — Master switch (SIGMA rule: never weaken or remove)
+   ok = GateMasterSwitch(r);
+   SetGateResult(4, ok, r);
+   if(!ok) { failReason = GateFailText(4, r); return(false); }
+
+   failReason = "";
+   return(true);
+  }
+
+void SetGateResult(const int idx, const bool pass, const string reason)
+  {
+   g_gateEvaluated[idx] = true;
+   g_gatePass[idx]      = pass;
+   g_gateReason[idx]    = reason;
+  }
+
+string GateFailText(const int idx, const string reason)
+  {
+   return(StringFormat("gate %d (%s): %s", idx + 1, g_gateNames[idx], reason));
+  }
+
+//--- Log composite gate status only when it changes (checklist: no 1 Hz spam)
+void LogGateStatusOnChange(const bool pass, const string failReason)
+  {
+   string status = pass ? "PASS" : failReason;
+   if(status == g_lastGateStatus)
+      return;
+   g_lastGateStatus = status;
+   if(pass)
+      HydraLog("gates PASS — deployment deferred (Phase 3)");
+   else
+      HydraLog("gates FAIL — " + failReason);
+  }
+
+//--- Gate 1: server time inside Session1 or Session2 (windows treated as GMT per spec)
+bool GateSession(string &reason)
+  {
+   if(!g_sessionsValid)
+     {
+      reason = StringFormat("malformed session input ('%s' / '%s')", Session1, Session2);
+      return(false);
+     }
+   MqlDateTime dt;
+   TimeToStruct(TimeCurrent(), dt);
+   int nowMin = dt.hour * 60 + dt.min;
+   if(nowMin >= g_sess1Start && nowMin < g_sess1End) { reason = "in " + Session1; return(true); }
+   if(nowMin >= g_sess2Start && nowMin < g_sess2End) { reason = "in " + Session2; return(true); }
+   reason = StringFormat("server %02d:%02d outside %s and %s", dt.hour, dt.min, Session1, Session2);
    return(false);
+  }
+
+//--- Gate 2: ATR(14, M5) within [ATR_Min_USD, ATR_Max_USD].
+//    For XAUUSD the price unit is USD, so ATR in price terms IS the USD range.
+bool GateVolatility(string &reason)
+  {
+   double atr = GetATRUSD();
+   if(atr < 0.0)             { reason = "ATR(14,M5) unavailable (handle/data not ready)";                   return(false); }
+   if(atr < ATR_Min_USD)     { reason = StringFormat("ATR %.2f < min %.2f (chop risk)", atr, ATR_Min_USD);  return(false); }
+   if(atr > ATR_Max_USD)     { reason = StringFormat("ATR %.2f > max %.2f (move already ran)", atr, ATR_Max_USD); return(false); }
+   reason = StringFormat("ATR %.2f in [%.2f, %.2f]", atr, ATR_Min_USD, ATR_Max_USD);
+   return(true);
+  }
+
+//--- Last CLOSED M5 bar's ATR, in price units (USD for XAUUSD); -1.0 on failure
+double GetATRUSD()
+  {
+   if(g_atrHandle == INVALID_HANDLE)
+      return(-1.0);
+   double buf[1];
+   if(CopyBuffer(g_atrHandle, 0, 1, 1, buf) != 1)
+      return(-1.0);
+   return(buf[0]);
+  }
+
+//--- Gate 3: spread cap + validate GridSpacingUSD against
+//    SYMBOL_TRADE_STOPS_LEVEL + spread + buffer (CLAUDE.md §5 gate 3)
+bool GateSpread(string &reason)
+  {
+   long spreadPts = SymbolInfoInteger(_Symbol, SYMBOL_SPREAD);
+   if(spreadPts > MaxSpreadPoints)
+     {
+      reason = StringFormat("spread %d pts > max %d", (int)spreadPts, MaxSpreadPoints);
+      return(false);
+     }
+   long   stopsLvl      = SymbolInfoInteger(_Symbol, SYMBOL_TRADE_STOPS_LEVEL);
+   double minSpacingUSD = (stopsLvl + spreadPts + SPACING_BUFFER_POINTS) * _Point;
+   if(GridSpacingUSD < minSpacingUSD)
+     {
+      reason = StringFormat("GridSpacingUSD %.2f < required %.2f (stops %d + spread %d + buffer %d pts)",
+                            GridSpacingUSD, minSpacingUSD, (int)stopsLvl, (int)spreadPts, SPACING_BUFFER_POINTS);
+      return(false);
+     }
+   reason = StringFormat("spread %d pts, spacing OK", (int)spreadPts);
+   return(true);
+  }
+
+//--- Gate 4: no existing Hydra exposure; margin level above floor; daily loss under cap
+bool GateExposure(string &reason)
+  {
+   int pos = CountHydraPositions();
+   int ord = CountHydraOrders();
+   if(pos > 0 || ord > 0)
+     {
+      reason = StringFormat("existing Hydra exposure (%d position(s), %d order(s))", pos, ord);
+      return(false);
+     }
+
+   // Margin level is only meaningful when margin is in use
+   double margin = AccountInfoDouble(ACCOUNT_MARGIN);
+   if(margin > 0.0)
+     {
+      double lvl = AccountInfoDouble(ACCOUNT_MARGIN_LEVEL);
+      if(lvl <= MinMarginLevelPct)
+        {
+         reason = StringFormat("margin level %.0f%% <= min %.0f%%", lvl, MinMarginLevelPct);
+         return(false);
+        }
+     }
+
+   double dayStart = GVGet(GV_DAY_BALANCE, AccountInfoDouble(ACCOUNT_BALANCE));
+   if(dayStart > 0.0)
+     {
+      double lossPct = (dayStart - AccountInfoDouble(ACCOUNT_EQUITY)) / dayStart * 100.0;
+      if(lossPct >= MaxDailyLossPct)
+        {
+         reason = StringFormat("daily loss %.2f%% >= limit %.2f%%", lossPct, MaxDailyLossPct);
+         return(false);
+        }
+     }
+
+   reason = "no exposure, margin OK, daily loss OK";
+   return(true);
+  }
+
+//--- Gate 5: master switch — input flag AND terminal AutoTrading AND EA trade permission
+bool GateMasterSwitch(string &reason)
+  {
+   if(!AUTO_TRADING_ENABLED)                                { reason = "AUTO_TRADING_ENABLED=false";        return(false); }
+   if(TerminalInfoInteger(TERMINAL_TRADE_ALLOWED) == 0)     { reason = "terminal AutoTrading button OFF";   return(false); }
+   if(MQLInfoInteger(MQL_TRADE_ALLOWED) == 0)               { reason = "EA trading not allowed (program)";  return(false); }
+   reason = "enabled";
+   return(true);
   }
 
 //+------------------------------------------------------------------+
@@ -375,5 +579,48 @@ bool ParseLotProgression(const string csv, double &lots[])
       lots[i] = lot;
      }
    return(true);
+  }
+
+//--- Roll the per-day anchors on server-day change: balance snapshot for
+//    gate 4's daily-loss cap. Phase 5 will also reset the whipsaw counter here.
+void UpdateDayAnchor()
+  {
+   long today = (long)(TimeCurrent() / 86400);
+   if((long)GVGet(GV_DAY_STAMP, -1.0) == today)
+      return;
+   GVSet(GV_DAY_STAMP, (double)today);
+   GVSet(GV_DAY_BALANCE, AccountInfoDouble(ACCOUNT_BALANCE));
+   HydraLog(StringFormat("new server day — daily-loss balance anchor %.2f", AccountInfoDouble(ACCOUNT_BALANCE)));
+  }
+
+//--- Parse "HH:MM-HH:MM" into minutes-of-day; false on any malformation
+//    (missing dash, bad numbers, start >= end)
+bool ParseSessionWindow(const string window, int &startMin, int &endMin)
+  {
+   string parts[];
+   if(StringSplit(window, '-', parts) != 2)
+      return(false);
+   int s = ParseHHMM(parts[0]);
+   int e = ParseHHMM(parts[1]);
+   if(s < 0 || e < 0 || s >= e)
+      return(false);
+   startMin = s;
+   endMin   = e;
+   return(true);
+  }
+
+//--- "HH:MM" -> minutes-of-day, or -1 if malformed
+int ParseHHMM(string s)
+  {
+   StringTrimLeft(s);
+   StringTrimRight(s);
+   string hm[];
+   if(StringSplit(s, ':', hm) != 2)
+      return(-1);
+   long h = StringToInteger(hm[0]);
+   long m = StringToInteger(hm[1]);
+   if(h < 0 || h > 23 || m < 0 || m > 59)
+      return(-1);
+   return((int)(h * 60 + m));
   }
 //+------------------------------------------------------------------+
