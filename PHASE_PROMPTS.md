@@ -8,7 +8,7 @@
 > 1. Implement only the scope of the current phase (later-phase stubs are fine but must be inert).
 > 2. Run the phase's test suite from `docs/CHECKLIST.md`. All tests must pass with **zero compile warnings**.
 > 3. On full pass: bump `HYDRA_VERSION` (last digit +1), update the dashboard header source constant.
-> 4. Commit + push with message `Phase N complete — <summary> (vX.Y)`.
+> 4. Commit with message `Phase N complete — <summary> (vX.Y)`, then automatically merge to `main` and push (standing user directive — no per-phase approval needed).
 > 5. If any behavior deviates from `CLAUDE.md`, update `CLAUDE.md` **first**, then implement.
 > 6. Never commit a failing or warning build. Deliver complete files, not diffs.
 

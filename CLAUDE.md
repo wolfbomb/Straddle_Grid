@@ -199,7 +199,7 @@ verify no partial grids, no orphaned orders after restart mid-ACTIVE.
 **Per-phase workflow (mandatory):**
 - Every phase ends with its own test suite (compile check + phase-specific Strategy Tester or log-verification tests defined in `docs/CHECKLIST.md`).
 - A phase is complete only when **all its tests pass with zero compile warnings**.
-- On full pass: bump the version (v1.0 → v1.1 → v1.2 …) in the `HYDRA_VERSION` constant and dashboard header, then **automatically commit and push** to `https://github.com/wolfbomb/Straddle_Grid.git` with message format: `Phase N complete — <summary> (vX.Y)`.
+- On full pass: bump the version (v1.0 → v1.1 → v1.2 …) in the `HYDRA_VERSION` constant and dashboard header, then **automatically commit, merge to `main`, and push** to `https://github.com/wolfbomb/Straddle_Grid.git` with message format: `Phase N complete — <summary> (vX.Y)`. Merging to `main` on phase completion is automatic — no per-phase approval needed (user directive, 2026-07-13).
 - Never commit a failing or warning build.
 
 ### 10.1 Dashboard Panel Spec (Phase 8)
