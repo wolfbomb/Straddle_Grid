@@ -7,7 +7,7 @@
 //| progression. Spec: CLAUDE.md (repo root). Build plan:            |
 //| PHASE_PROMPTS.md. Tests: docs/CHECKLIST.md.                      |
 //|                                                                  |
-//| Phase 4 — Direction Lock & OCO (on Phases 1–3).                  |
+//| Phase 5 — Whipsaw Guard (on Phases 1–4).                         |
 //| Places orders ONLY when all five gates pass, which requires      |
 //| AUTO_TRADING_ENABLED=true (default false).                       |
 //|                                                                  |
@@ -58,7 +58,7 @@ input int     MaxWhipsawsPerDay    = 2;
 //+------------------------------------------------------------------+
 //| ===================== GLOBALS / STATE =========================== |
 //+------------------------------------------------------------------+
-#define HYDRA_VERSION        "v1.3"          // single source of truth — dashboard header reads this
+#define HYDRA_VERSION        "v1.4"          // single source of truth — dashboard header reads this
 #define HYDRA_COMMENT_PREFIX "SIGMA.Hydra"   // order comment prefix (SIGMA convention)
 
 // Persistent global-variable keys (namespaced SIGMA.Hydra.<symbol>.<key>,
@@ -291,6 +291,15 @@ void OnTick()
 
       case STATE_COOLDOWN:
         {
+         // Sweep any straggler exposure that slipped past the kill switch
+         if(CountHydraPositions() > 0)
+           {
+            HydraLog("straggler position found during COOLDOWN — closing");
+            CloseAllHydraPositions();
+           }
+         if(CountHydraOrders() > 0)
+            DeleteAllHydraPendings();
+
          datetime until = (datetime)(long)GVGet(GV_COOLDOWN_UNTIL, 0.0);
          if(TimeCurrent() >= until)
             SetState(STATE_IDLE, "cooldown expired");
@@ -359,6 +368,19 @@ void RegisterFill(const bool isBuy, const datetime fillTime, const double volume
                                              OCO_Mode ? ", OCO cancel issued" : ", reversal hedge kept (OCO off)"));
       else
          HydraLog(StringFormat("WARNING: first fill arrived in state %s", StateName(g_state)));
+     }
+
+   // Guard check straight from the fill event: a same-tick double fill
+   // (possible with OCO_Mode=false, or before OCO cleanup lands) must
+   // trigger the kill switch immediately, not on the next tick.
+   CheckWhipsawGuard();
+
+   // Straggler: a stop order can execute in the same instant the guard
+   // fires — anything filled after the kill gets closed on the spot.
+   if(g_state == STATE_COOLDOWN && CountHydraPositions() > 0)
+     {
+      HydraLog("straggler fill during COOLDOWN — closing immediately");
+      CloseAllHydraPositions();
      }
   }
 
@@ -746,13 +768,111 @@ void LogDeployAbortOnChange(const string reason)
 
 //+------------------------------------------------------------------+
 //| ====================== WHIPSAW GUARD ============================ |
-//| Phase 5: MANDATORY kill switch (CLAUDE.md §6). Called at the top |
-//| of OnTick in ACTIVE state, before any other management logic.    |
-//| Returns true when the guard fired. Never weaken or remove.       |
+//| MANDATORY kill switch (CLAUDE.md §6). Called at the top of       |
+//| OnTick in ACTIVE state BEFORE any other management logic, and    |
+//| again straight from RegisterFill so a same-tick double fill      |
+//| (OCO_Mode=false edge case) is caught without waiting a tick.     |
+//| Returns true when the guard fired. NEVER weaken or remove.       |
 //+------------------------------------------------------------------+
 bool CheckWhipsawGuard()
   {
-   return(false);   // Phase 5
+   if(g_state == STATE_COOLDOWN)
+      return(false);                      // already fired / locked out
+   if(g_lastBuyFill == 0 || g_lastSellFill == 0)
+      return(false);                      // need one fill on EACH side
+
+   long gap = (long)g_lastBuyFill - (long)g_lastSellFill;
+   if(gap < 0)
+      gap = -gap;
+   if(gap > WhipsawWindowSec)
+      return(false);                      // opposite fills, but too far apart
+
+   // --- WHIPSAW: both sides filled within the window. Kill everything.
+   HydraLog(StringFormat("WHIPSAW DETECTED — buy fill %s / sell fill %s, gap %d s <= window %d s",
+                         TimeToString(g_lastBuyFill, TIME_DATE|TIME_SECONDS),
+                         TimeToString(g_lastSellFill, TIME_DATE|TIME_SECONDS),
+                         (int)gap, WhipsawWindowSec));
+
+   // 1) close all Hydra positions at market
+   CloseAllHydraPositions();
+   // 2) delete all remaining Hydra pendings
+   DeleteAllHydraPendings();
+   // 3+4) persistent counter (survives restart), then cooldown
+   int count = IncrementWhipsawCounter();
+
+   datetime until;
+   if(count >= MaxWhipsawsPerDay)
+     {
+      until = NextServerDayStart();
+      HydraLog(StringFormat("whipsaw count %d/%d — locked out until next trading day", count, MaxWhipsawsPerDay));
+     }
+   else
+      until = TimeCurrent() + (long)WhipsawCooldownMin * 60;
+
+   GVSet(GV_COOLDOWN_UNTIL, (double)(long)until);
+   SetState(STATE_COOLDOWN, StringFormat("whipsaw guard fired (%d/%d today), cooldown until %s",
+                                         count, MaxWhipsawsPerDay, TimeToString(until, TIME_DATE|TIME_SECONDS)));
+   return(true);
+  }
+
+//--- Close every Hydra position at market (urgent — generous slippage
+//    allowance, up to 5 sweeps). Returns positions still open afterwards.
+int CloseAllHydraPositions()
+  {
+   for(int attempt = 0; attempt < 5; attempt++)
+     {
+      for(int i = PositionsTotal() - 1; i >= 0; i--)
+        {
+         ulong ticket = PositionGetTicket(i);
+         if(ticket == 0 || !IsHydraPosition())
+            continue;
+         bool isLong = (PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY);
+         MqlTradeRequest req;
+         MqlTradeResult  res;
+         ZeroMemory(req);
+         ZeroMemory(res);
+         req.action       = TRADE_ACTION_DEAL;
+         req.symbol       = _Symbol;
+         req.position     = ticket;
+         req.volume       = PositionGetDouble(POSITION_VOLUME);
+         req.type         = isLong ? ORDER_TYPE_SELL : ORDER_TYPE_BUY;
+         req.price        = isLong ? SymbolInfoDouble(_Symbol, SYMBOL_BID)
+                                   : SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+         req.deviation    = 50;                       // closing is urgent, accept slippage
+         req.magic        = (ulong)MagicNumber;
+         req.comment      = StringFormat("%s.kill", HYDRA_COMMENT_PREFIX);
+         req.type_filling = ORDER_FILLING_IOC;        // SIGMA convention #2
+         if(!OrderSend(req, res) ||
+            (res.retcode != TRADE_RETCODE_DONE && res.retcode != TRADE_RETCODE_DONE_PARTIAL))
+            HydraLog(StringFormat("close position #%I64u failed — retcode %d (sweep %d)",
+                                  ticket, res.retcode, attempt + 1));
+        }
+      if(CountHydraPositions() == 0)
+         return(0);
+     }
+   int left = CountHydraPositions();
+   HydraLog(StringFormat("WARNING: %d Hydra position(s) still open after close sweeps", left));
+   return(left);
+  }
+
+//--- Bump the persistent whipsaw counter (terminal global variable,
+//    survives restart), auto-resetting when the server day changed
+int IncrementWhipsawCounter()
+  {
+   long today = (long)(TimeCurrent() / 86400);
+   int  count = (int)GVGet(GV_WHIPSAW_COUNT, 0.0);
+   if((long)GVGet(GV_WHIPSAW_DAY, -1.0) != today)
+      count = 0;
+   count++;
+   GVSet(GV_WHIPSAW_DAY, (double)today);
+   GVSet(GV_WHIPSAW_COUNT, (double)count);
+   return(count);
+  }
+
+//--- Next server-day midnight (the "come back tomorrow" lockout target)
+datetime NextServerDayStart()
+  {
+   return((datetime)(((long)(TimeCurrent() / 86400) + 1) * 86400));
   }
 
 //+------------------------------------------------------------------+
@@ -921,7 +1041,7 @@ bool ParseLotProgression(const string csv, double &lots[])
   }
 
 //--- Roll the per-day anchors on server-day change: balance snapshot for
-//    gate 4's daily-loss cap. Phase 5 will also reset the whipsaw counter here.
+//    gate 4's daily-loss cap, and the whipsaw counter reset (CLAUDE.md §6)
 void UpdateDayAnchor()
   {
    long today = (long)(TimeCurrent() / 86400);
@@ -929,6 +1049,12 @@ void UpdateDayAnchor()
       return;
    GVSet(GV_DAY_STAMP, (double)today);
    GVSet(GV_DAY_BALANCE, AccountInfoDouble(ACCOUNT_BALANCE));
+   if((long)GVGet(GV_WHIPSAW_DAY, -1.0) != today && (int)GVGet(GV_WHIPSAW_COUNT, 0.0) != 0)
+     {
+      GVSet(GV_WHIPSAW_DAY, (double)today);
+      GVSet(GV_WHIPSAW_COUNT, 0.0);
+      HydraLog("whipsaw counter reset for the new trading day");
+     }
    HydraLog(StringFormat("new server day — daily-loss balance anchor %.2f", AccountInfoDouble(ACCOUNT_BALANCE)));
   }
 

@@ -1,11 +1,13 @@
 # PENDING_USER_ACTIONS.md — Your Test Queue
 
 > Everything currently waiting on you (the user, at your MT5 PC).
-> Current build: `Straddle_Grid.mq5` **v1.3** (Phases 1–4: skeleton, gates, grid deploy/expiry, direction lock & OCO).
+> Current build: `Straddle_Grid.mq5` **v1.4** (Phases 1–5: skeleton, gates, grid deploy/expiry,
+> direction lock & OCO, Whipsaw Guard).
 > ⚠ The EA CAN place orders — but only with `AUTO_TRADING_ENABLED=true` and all five gates
-> passing. Test in the Strategy Tester / demo only, ATTENDED (Whipsaw Guard arrives in Phase 5).
-> Phases 1–4 are tested together in one sitting. When these pass, report back →
-> I bump to v1.4, commit "Phase 4 complete" (covering all four), and start Phase 5 (Whipsaw Guard).
+> passing. Test in the Strategy Tester / demo only.
+> Phases 1–5 are tested together in one sitting. **Phase 5 tests are the gate for Phase 6** —
+> per CLAUDE.md the Basket Manager may not be built until the Whipsaw Guard tests pass.
+> On pass, report back → I bump to v1.5, commit "Phase 5 complete", and start Phase 6.
 
 ---
 
@@ -25,7 +27,7 @@ default inputs (leave `AUTO_TRADING_ENABLED = false`).
 
 Check the Journal/Experts log for:
 
-- [ ] EA initializes: `[HYDRA]` line `SIGMA Hydra v1.3 initializing on XAUUSD-VIP (magic 20260713)`.
+- [ ] EA initializes: `[HYDRA]` line `SIGMA Hydra v1.4 initializing on XAUUSD-VIP (magic 20260713)`.
 - [ ] Lot progression line: `9 levels/side, 0.24 lots/side if fully filled`.
 - [ ] Symbol spec line (minLot / lotStep / stopsLevel / tickSize / tickValue) — **note these values
       down and send them to me**; I need them to sanity-check the Phase 3 grid-spacing defaults
@@ -123,19 +125,45 @@ pick a trending day (e.g. a session open with displacement) so stops actually fi
 - [ ] **Restart mid-ACTIVE (demo chart):** while holding fills, remove and re-attach the EA →
       log shows `recovery: N open position(s) … direction BUY, N fill(s)`, no duplicate grid,
       no re-locked wrong direction. (§11 explicit case)
-- [ ] Note: with no basket exits yet (Phase 6), positions ride until you close them manually
-      or the tester run ends — expected at this phase.
+- [ ] Note: with no basket exits yet (Phase 6), positions ride until you close them manually,
+      the Whipsaw Guard fires, or the tester run ends — expected at this phase.
 
-## 8. Report back
+## 8. Phase 5 — Whipsaw Guard tests  ⚠ must pass before Phase 6 is built
+
+Full list in `docs/CHECKLIST.md` §Phase 5. Tester, real ticks, `AUTO_TRADING_ENABLED=true`.
+The easiest way to force a whipsaw: `OCO_Mode=false`, pick a violent news day
+(NFP/FOMC/CPI release), and shrink `FirstLevelOffsetUSD`/`GridSpacingUSD` a little so one
+big two-sided candle can reach both sides.
+
+- [ ] **Guard fires:** when a buy fill and a sell fill land within `WhipsawWindowSec` (300 s),
+      journal shows `WHIPSAW DETECTED — buy fill … / sell fill …, gap N s`, then every position
+      is closed at market, every pending deleted, and
+      `state ACTIVE -> COOLDOWN (whipsaw guard fired (1/2 today), cooldown until …)`.
+      Account is completely flat afterwards (Trade tab empty). (§11 explicit case)
+- [ ] **Cooldown holds:** for the next 60 min nothing deploys — no gate logs, no orders;
+      then `state COOLDOWN -> IDLE (cooldown expired)`.
+- [ ] **Daily cap:** force a second whipsaw the same day → log shows `(2/2 today) — locked out
+      until next trading day`; EA stays in COOLDOWN past the 60-minute mark until the next
+      server day, then resets (`whipsaw counter reset for the new trading day`).
+- [ ] **Counter survives restart (demo):** after one whipsaw, check F3 Global Variables —
+      `SIGMA.Hydra.XAUUSD-VIP.whipsaw_count = 1` — re-attach the EA → recovery goes straight
+      to COOLDOWN with the correct remaining time.
+- [ ] **Ordering:** the whipsaw log lines appear BEFORE any other ACTIVE-state management
+      lines in the same tick (guard runs first — will matter more once Phase 6 adds exits).
+- [ ] **No false fires:** on a clean trending run (OCO on), the guard never triggers —
+      one-sided fills only.
+
+## 9. Report back
 
 Send me:
 
 1. Compile result (0/0 or the exact messages).
 2. The symbol-spec log line values (item 2, third bullet).
-3. Pass/fail on items 2–7 (screenshots or pasted log lines are perfect).
+3. Pass/fail on items 2–8 (screenshots or pasted log lines are perfect).
 
-Then I will: bump `HYDRA_VERSION` → `v1.4`, commit `Phase 4 complete — … (v1.4)` to main
-(covering Phases 1–4), and immediately proceed to **Phase 5 — Whipsaw Guard**.
+Then I will: bump `HYDRA_VERSION` → `v1.5`, commit `Phase 5 complete — … (v1.5)` to main
+(covering Phases 1–5), and immediately proceed to **Phase 6 — Basket Manager**
+(which per CLAUDE.md is only allowed to start once the Phase 5 tests pass).
 
 ---
 
@@ -143,6 +171,6 @@ Then I will: bump `HYDRA_VERSION` → `v1.4`, commit `Phase 4 complete — … (
 
 | When | Task |
 |---|---|
-| Phase 5 done | Whipsaw candle test on a violent news bar — must pass before Phase 6 code is accepted |
+| Phase 6 done | Basket TP/SL/trailing tests; trail-floor retrace test |
 | Phase 7 | 3-month real-tick backtest incl. one NFP + one FOMC day; download tick history beforehand |
 | Pre-live | 1-week demo soak with `AUTO_TRADING_ENABLED = true` (see final checklist in `docs/CHECKLIST.md`) |
