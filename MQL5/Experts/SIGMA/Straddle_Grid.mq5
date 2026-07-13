@@ -58,7 +58,7 @@ input int     MaxWhipsawsPerDay    = 2;
 //+------------------------------------------------------------------+
 //| ===================== GLOBALS / STATE =========================== |
 //+------------------------------------------------------------------+
-#define HYDRA_VERSION        "v1.4"          // single source of truth — dashboard header reads this
+#define HYDRA_VERSION        "v1.5"          // single source of truth — dashboard header reads this
 #define HYDRA_COMMENT_PREFIX "SIGMA.Hydra"   // order comment prefix (SIGMA convention)
 
 // Persistent global-variable keys (namespaced SIGMA.Hydra.<symbol>.<key>,
@@ -665,8 +665,10 @@ bool DeployGrid()
      }
 
    // Broker-side expiry where supported; the code TTL in ARMED applies regardless
-   bool     useSpecified = (SymbolInfoInteger(_Symbol, SYMBOL_EXPIRATION_MODE) & SYMBOL_EXPIRATION_SPECIFIED) != 0;
-   datetime expiration   = useSpecified ? TimeCurrent() + (long)GridTTLMin * 60 : 0;
+  bool     useSpecified = (SymbolInfoInteger(_Symbol, SYMBOL_EXPIRATION_MODE) & SYMBOL_EXPIRATION_SPECIFIED) != 0;
+  datetime expiration   = 0;
+  if(useSpecified)
+    expiration = (datetime)((long)TimeCurrent() + (long)GridTTLMin * 60);
 
    // --- Placement: any send failure rolls back the whole deployment
    for(int i = 0; i < n; i++)
@@ -806,8 +808,8 @@ bool CheckWhipsawGuard()
       until = NextServerDayStart();
       HydraLog(StringFormat("whipsaw count %d/%d — locked out until next trading day", count, MaxWhipsawsPerDay));
      }
-   else
-      until = TimeCurrent() + (long)WhipsawCooldownMin * 60;
+  else
+    until = (datetime)((long)TimeCurrent() + (long)WhipsawCooldownMin * 60);
 
    GVSet(GV_COOLDOWN_UNTIL, (double)(long)until);
    SetState(STATE_COOLDOWN, StringFormat("whipsaw guard fired (%d/%d today), cooldown until %s",
