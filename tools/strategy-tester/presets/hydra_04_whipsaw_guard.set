@@ -5,6 +5,8 @@
 ;   ATR_Max_USD=999       -> volatility gate can't block the spike
 ;   MaxSpreadPoints=300   -> news spread blowout can't block deploy
 ;   GridTTLMin=240        -> grid survives from deploy until the news hits
+;   WhipsawWindowSec=3600 -> catches slow whipsaws too (field: Jul 2 reversal
+;                            took 10.5 min, evading the 300 s default)
 ; Expect on a violent two-sided candle: WHIPSAW DETECTED -> all positions
 ; closed, all pendings deleted -> COOLDOWN (1/2 today). Account flat.
 AUTO_TRADING_ENABLED=true
@@ -26,6 +28,6 @@ ATR_Max_USD=999.0
 MaxSpreadPoints=300
 MinMarginLevelPct=500.0
 MaxDailyLossPct=3.0
-WhipsawWindowSec=300
+WhipsawWindowSec=3600
 WhipsawCooldownMin=60
 MaxWhipsawsPerDay=2

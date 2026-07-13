@@ -58,7 +58,7 @@ input int     MaxWhipsawsPerDay    = 2;
 //+------------------------------------------------------------------+
 //| ===================== GLOBALS / STATE =========================== |
 //+------------------------------------------------------------------+
-#define HYDRA_VERSION        "v1.6"          // single source of truth — dashboard header reads this
+#define HYDRA_VERSION        "v1.7"          // single source of truth — dashboard header reads this
 #define HYDRA_COMMENT_PREFIX "SIGMA.Hydra"   // order comment prefix (SIGMA convention)
 
 // Persistent global-variable keys (namespaced SIGMA.Hydra.<symbol>.<key>,
@@ -351,7 +351,9 @@ void RegisterFill(const bool isBuy, const datetime fillTime, const double volume
    else
       g_lastSellFill = fillTime;
 
-   HydraLog(StringFormat("fill %d/%d: %s %.2f @ %.2f", g_fillCount, GridLevels,
+   // Max possible fills: one side with OCO, both sides without
+   HydraLog(StringFormat("fill %d/%d: %s %.2f @ %.2f", g_fillCount,
+                         OCO_Mode ? GridLevels : GridLevels * 2,
                          isBuy ? "BUY" : "SELL", volume, price));
 
    if(g_lockedDir == 0)
