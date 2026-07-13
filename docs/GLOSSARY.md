@@ -35,7 +35,7 @@
 | **Timeframe (M1 / M5)** | How much time each candle on the chart represents. M1 = 1 minute, M5 = 5 minutes. Hydra acts on M1 and reads market conditions from M5. |
 | **Breakout** | Price escaping a quiet range with force. Hydra's whole bet is catching breakouts. |
 | **Straddle** | Placing orders on *both* sides of the current price — buy orders above, sell orders below — because you expect a big move but don't know which direction. Whichever way it breaks, you're on board. |
-| **Grid** | A ladder of orders at evenly spaced prices (e.g. every $0.42). Hydra uses two ladders: 9 buy stops going up, 9 sell stops going down. |
+| **Grid** | A ladder of orders at evenly spaced prices (e.g. every $0.70). Hydra uses two ladders: 9 buy stops going up, 9 sell stops going down. |
 | **Anchor** | The price at the middle of the grid at the moment it's placed — the current price when Hydra deploys. |
 | **Pyramiding** | Adding *bigger* positions as the move goes your way (Hydra's lots go 0.01 → 0.05 up the ladder). Powerful in a real breakout, dangerous in a fake one — which is why the Whipsaw Guard exists. |
 | **Martingale** | Doubling your bet after losses hoping to win it back — a famous way to destroy accounts. Hydra explicitly bans anything like it (Hard Rule §12). Pyramiding into a *winning* move is not martingale. |

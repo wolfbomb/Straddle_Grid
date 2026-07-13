@@ -1,13 +1,14 @@
 # PENDING_USER_ACTIONS.md — Your Test Queue
 
 > Everything currently waiting on you (the user, at your MT5 PC).
-> Current build: `Straddle_Grid.mq5` **v1.4** (Phases 1–5: skeleton, gates, grid deploy/expiry,
-> direction lock & OCO, Whipsaw Guard).
+> Current build: `Straddle_Grid.mq5` **v1.6** (Phases 1–5: skeleton, gates, grid deploy/expiry,
+> direction lock & OCO, Whipsaw Guard; v1.6 = GridSpacingUSD default 0.70 for VT Markets + gate
+> log de-spam, from your 2026-07-13 live-chart log).
 > ⚠ The EA CAN place orders — but only with `AUTO_TRADING_ENABLED=true` and all five gates
 > passing. Test in the Strategy Tester / demo only.
 > Phases 1–5 are tested together in one sitting. **Phase 5 tests are the gate for Phase 6** —
 > per CLAUDE.md the Basket Manager may not be built until the Whipsaw Guard tests pass.
-> On pass, report back → I bump to v1.5, commit "Phase 5 complete", and start Phase 6.
+> On pass, report back → I bump to v1.7, commit "Phase 5 complete", and start Phase 6.
 
 ---
 
@@ -27,7 +28,8 @@ default inputs (leave `AUTO_TRADING_ENABLED = false`).
 
 Check the Journal/Experts log for:
 
-- [ ] EA initializes: `[HYDRA]` line `SIGMA Hydra v1.4 initializing on XAUUSD-VIP (magic 20260713)`.
+- [ ] EA initializes: `[HYDRA]` line `SIGMA Hydra v1.6 initializing on XAUUSD-VIP (magic 20260713)`.
+      (Re-pull the repo and recompile first — v1.6 fixes the gate-3 spacing block you hit.)
 - [ ] Lot progression line: `9 levels/side, 0.24 lots/side if fully filled`.
 - [ ] Symbol spec line (minLot / lotStep / stopsLevel / tickSize / tickValue) — **note these values
       down and send them to me**; I need them to sanity-check the Phase 3 grid-spacing defaults
@@ -88,7 +90,7 @@ pick a date/time inside a session window so gates can pass:
 
 - [ ] **Deployment:** on gates PASS, exactly 9 buy stops above and 9 sell stops below the anchor
       appear at once; journal shows `grid deployed: 9+9 stops around <anchor>`. Spot-check 2–3
-      prices against the formula `anchor ± (0.50 + i × 0.42)` and lots against the progression;
+      prices against the formula `anchor ± (0.50 + i × 0.70)` and lots against the progression;
       comments read `SIGMA.Hydra.B0…B8 / S0…S8`.
 - [ ] **Stops-level abort:** set `FirstLevelOffsetUSD = 0.0` (and if your stops level is 0, also
       `GridSpacingUSD` tiny) → journal shows `deployment ABORTED — … violates min distance`,
@@ -161,7 +163,7 @@ Send me:
 2. The symbol-spec log line values (item 2, third bullet).
 3. Pass/fail on items 2–8 (screenshots or pasted log lines are perfect).
 
-Then I will: bump `HYDRA_VERSION` → `v1.5`, commit `Phase 5 complete — … (v1.5)` to main
+Then I will: bump `HYDRA_VERSION` → `v1.7`, commit `Phase 5 complete — … (v1.7)` to main
 (covering Phases 1–5), and immediately proceed to **Phase 6 — Basket Manager**
 (which per CLAUDE.md is only allowed to start once the Phase 5 tests pass).
 

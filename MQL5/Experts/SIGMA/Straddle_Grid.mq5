@@ -29,7 +29,7 @@ input long    MagicNumber          = 20260713;
 
 input group "── Grid ──"
 input int     GridLevels           = 9;        // per side
-input double  GridSpacingUSD       = 0.42;     // $ between levels
+input double  GridSpacingUSD       = 0.70;     // $ between levels (VT XAUUSD-VIP: stops 20 + max spread 35 + buffer 10 pts)
 input double  FirstLevelOffsetUSD  = 0.50;     // $ from anchor to level 1
 input string  LotProgressionCSV    = "0.01,0.01,0.02,0.02,0.02,0.03,0.04,0.04,0.05";
 input bool    OCO_Mode             = true;
@@ -58,7 +58,7 @@ input int     MaxWhipsawsPerDay    = 2;
 //+------------------------------------------------------------------+
 //| ===================== GLOBALS / STATE =========================== |
 //+------------------------------------------------------------------+
-#define HYDRA_VERSION        "v1.5"          // single source of truth — dashboard header reads this
+#define HYDRA_VERSION        "v1.6"          // single source of truth — dashboard header reads this
 #define HYDRA_COMMENT_PREFIX "SIGMA.Hydra"   // order comment prefix (SIGMA convention)
 
 // Persistent global-variable keys (namespaced SIGMA.Hydra.<symbol>.<key>,
@@ -495,15 +495,26 @@ string GateFailText(const int idx, const string reason)
    return(StringFormat("gate %d (%s): %s", idx + 1, g_gateNames[idx], reason));
   }
 
-//--- Log composite gate status only when it changes (checklist: no 1 Hz spam)
+//--- Log gate status only when it changes. The change key is pass/fail +
+//    WHICH gate failed — not the full reason text, which oscillates every
+//    second with live spread/ATR readings and would spam the journal.
 void LogGateStatusOnChange(const bool pass, const string failReason)
   {
-   string status = pass ? "PASS" : failReason;
+   string status = "PASS";
+   if(!pass)
+     {
+      for(int i = 0; i < GATE_COUNT; i++)
+         if(g_gateEvaluated[i] && !g_gatePass[i])
+           {
+            status = StringFormat("FAIL:gate%d", i + 1);
+            break;
+           }
+     }
    if(status == g_lastGateStatus)
       return;
    g_lastGateStatus = status;
    if(pass)
-      HydraLog("gates PASS — deployment deferred (Phase 3)");
+      HydraLog("gates PASS — deploying grid");
    else
       HydraLog("gates FAIL — " + failReason);
   }
@@ -665,10 +676,10 @@ bool DeployGrid()
      }
 
    // Broker-side expiry where supported; the code TTL in ARMED applies regardless
-  bool     useSpecified = (SymbolInfoInteger(_Symbol, SYMBOL_EXPIRATION_MODE) & SYMBOL_EXPIRATION_SPECIFIED) != 0;
-  datetime expiration   = 0;
-  if(useSpecified)
-    expiration = (datetime)((long)TimeCurrent() + (long)GridTTLMin * 60);
+   bool     useSpecified = (SymbolInfoInteger(_Symbol, SYMBOL_EXPIRATION_MODE) & SYMBOL_EXPIRATION_SPECIFIED) != 0;
+   datetime expiration   = 0;
+   if(useSpecified)
+      expiration = (datetime)((long)TimeCurrent() + (long)GridTTLMin * 60);
 
    // --- Placement: any send failure rolls back the whole deployment
    for(int i = 0; i < n; i++)
@@ -808,8 +819,8 @@ bool CheckWhipsawGuard()
       until = NextServerDayStart();
       HydraLog(StringFormat("whipsaw count %d/%d — locked out until next trading day", count, MaxWhipsawsPerDay));
      }
-  else
-    until = (datetime)((long)TimeCurrent() + (long)WhipsawCooldownMin * 60);
+   else
+      until = (datetime)((long)TimeCurrent() + (long)WhipsawCooldownMin * 60);
 
    GVSet(GV_COOLDOWN_UNTIL, (double)(long)until);
    SetState(STATE_COOLDOWN, StringFormat("whipsaw guard fired (%d/%d today), cooldown until %s",

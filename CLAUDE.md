@@ -136,7 +136,7 @@ input long    MagicNumber          = 20260713;
 
 input group "── Grid ──"
 input int     GridLevels           = 9;        // per side
-input double  GridSpacingUSD       = 0.42;     // $ between levels
+input double  GridSpacingUSD       = 0.70;     // $ between levels (raised from 0.42 — see field note below)
 input double  FirstLevelOffsetUSD  = 0.50;     // $ from anchor to level 1
 input string  LotProgressionCSV    = "0.01,0.01,0.02,0.02,0.02,0.03,0.04,0.04,0.05";
 input bool    OCO_Mode             = true;
@@ -162,6 +162,13 @@ input int     WhipsawWindowSec     = 300;
 input int     WhipsawCooldownMin   = 60;
 input int     MaxWhipsawsPerDay    = 2;
 ```
+
+**Field note (2026-07-13, live VT Markets XAUUSD-VIP):** `SYMBOL_TRADE_STOPS_LEVEL` = 20 pts,
+typical live spread 29–30 pts, tick size 0.01, tick value $1.00/lot, min lot 0.01.
+Gate 3 requires `GridSpacingUSD ≥ stops + spread + 10-pt buffer` ≈ $0.60 (up to $0.65 at the
+`MaxSpreadPoints=35` cap), so the original 0.42 default could never deploy on this broker.
+Default raised to **0.70** — clears the worst allowed spread with margin. Full grid depth is now
+`0.50 + 8 × 0.70 = $6.10` per side (was $3.86).
 
 ---
 

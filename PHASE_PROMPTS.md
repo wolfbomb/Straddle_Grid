@@ -29,6 +29,10 @@
 
 (Phase 1 starts the file at `v1.0` and bumps to `v1.1` on passing its tests.)
 
+> Note: the ladder shows *minimum* versions. CLAUDE.md §12 requires a bump on **every** change,
+> so field fixes push actual versions higher (e.g. v1.6 = gate-3 spacing fix for VT Markets,
+> 2026-07-13). The rule stays: last digit +1 per change, phase-complete commits state the phase.
+
 ---
 
 ## Phase 1 — Skeleton & State Machine
@@ -121,7 +125,7 @@ Scope:
   cancel grid → IDLE, logged.
 - Verify VT Markets XAUUSD-VIP contract spec at first run (stops level, tick value/size,
   min lot, lot step) — log them in `OnInit` so defaults can be tuned. If
-  `SYMBOL_TRADE_STOPS_LEVEL` makes the default `GridSpacingUSD 0.42` invalid, the gate-3
+  `SYMBOL_TRADE_STOPS_LEVEL` makes the default `GridSpacingUSD` invalid, the gate-3
   validation from Phase 2 must already have blocked deployment.
 
 Tests: `docs/CHECKLIST.md` §Phase 3 (includes stops-level rejection → clean abort case from §11).
