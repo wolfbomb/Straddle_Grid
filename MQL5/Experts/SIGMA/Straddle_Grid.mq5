@@ -7,7 +7,7 @@
 //| progression. Spec: CLAUDE.md (repo root). Build plan:            |
 //| PHASE_PROMPTS.md. Tests: docs/CHECKLIST.md.                      |
 //|                                                                  |
-//| Phase 5 — Whipsaw Guard (on Phases 1–4).                         |
+//| Phase 6 — Basket Manager (on Phases 1–5).                        |
 //| Places orders ONLY when all five gates pass, which requires      |
 //| AUTO_TRADING_ENABLED=true (default false).                       |
 //|                                                                  |
@@ -58,7 +58,7 @@ input int     MaxWhipsawsPerDay    = 2;
 //+------------------------------------------------------------------+
 //| ===================== GLOBALS / STATE =========================== |
 //+------------------------------------------------------------------+
-#define HYDRA_VERSION        "v1.8"          // single source of truth — dashboard header reads this
+#define HYDRA_VERSION        "v1.9"          // single source of truth — dashboard header reads this
 #define HYDRA_COMMENT_PREFIX "SIGMA.Hydra"   // order comment prefix (SIGMA convention)
 
 // Persistent global-variable keys (namespaced SIGMA.Hydra.<symbol>.<key>,
@@ -68,6 +68,9 @@ input int     MaxWhipsawsPerDay    = 2;
 #define GV_COOLDOWN_UNTIL  "cooldown_until"  // epoch time cooldown ends
 #define GV_DAY_STAMP       "day_stamp"       // server day the daily anchors belong to
 #define GV_DAY_BALANCE     "day_balance"     // balance snapshot at server-day start (gate 4)
+#define GV_TRAIL_FLOOR     "trail_floor"     // active trail floor (0 = trailing not active)
+
+#define POST_EXIT_COOLDOWN_SEC 60            // basket-exit cooldown (CLAUDE.md §7, v1.9)
 
 enum EHydraState
   {
@@ -106,6 +109,10 @@ int      g_fillCount         = 0;           // entry fills in the current grid c
 datetime g_lastBuyFill       = 0;           // most recent buy-side entry fill time
 datetime g_lastSellFill      = 0;           // most recent sell-side entry fill time
 bool     g_ocoCleanupPending = false;       // opposite-side deletion outstanding (retried each tick)
+
+//--- Basket Manager (Phase 6)
+bool     g_trailActive = false;             // trailing engaged for the current basket
+double   g_trailFloor  = 0.0;               // locked profit floor (ratchets up only)
 
 //+------------------------------------------------------------------+
 //| ================== ONINIT (STATE RECOVERY) ====================== |
@@ -176,6 +183,15 @@ void RecoverState()
       RecoverFillHistory(EarliestHydraPositionTime() - 60);
       if(OCO_Mode && CountOppositePendings() > 0)
          g_ocoCleanupPending = true;
+      // Trail floor survives restart (0 = trailing was not active). A floor
+      // that was legitimately <= 0 is treated as inactive — trailing simply
+      // re-activates on the next tick where P/L >= the activation level.
+      double storedFloor = GVGet(GV_TRAIL_FLOOR, 0.0);
+      if(storedFloor > 0.0)
+        {
+         g_trailActive = true;
+         g_trailFloor  = storedFloor;
+        }
       SetState(STATE_ACTIVE, StringFormat("recovery: %d open position(s), %d pending(s); direction %s, %d fill(s)%s",
                                           positions, pendings,
                                           g_lockedDir > 0 ? "BUY" : (g_lockedDir < 0 ? "SELL" : "UNKNOWN"),
@@ -892,11 +908,104 @@ datetime NextServerDayStart()
 
 //+------------------------------------------------------------------+
 //| ====================== BASKET MANAGER =========================== |
-//| Phase 6: basket TP / SL / trailing, pending cleanup on trail.    |
+//| CLAUDE.md §7: all Hydra positions on this symbol are ONE basket. |
+//| Targets scale with filled volume: effective = input × (vol/0.01).|
+//| Runs AFTER CheckWhipsawGuard() in ACTIVE — never reorder.        |
 //+------------------------------------------------------------------+
 void ManageBasket()
   {
-   // Phase 6
+   double volume = 0.0;
+   double pl     = 0.0;   // floating P/L incl. swap (commission lives on deals, not positions)
+   for(int i = PositionsTotal() - 1; i >= 0; i--)
+     {
+      if(PositionGetTicket(i) == 0 || !IsHydraPosition())
+         continue;
+      volume += PositionGetDouble(POSITION_VOLUME);
+      pl     += PositionGetDouble(POSITION_PROFIT) + PositionGetDouble(POSITION_SWAP);
+     }
+   if(volume <= 0.0)
+      return;
+
+   double scale   = volume / 0.01;                    // spec: "per 0.01 base"
+   double tpUSD   = BasketTP_USD      * scale;
+   double slUSD   = BasketSL_USD      * scale;        // never widened at runtime (hard rule §12)
+   double actUSD  = TrailActivate_USD * scale;
+   double distUSD = TrailDistance_USD * scale;
+
+   // --- Trailing: activate once, then ratchet the floor UP only
+   if(!g_trailActive && pl >= actUSD)
+     {
+      g_trailActive = true;
+      g_trailFloor  = pl - distUSD;
+      GVSet(GV_TRAIL_FLOOR, g_trailFloor);
+      HydraLog(StringFormat("trailing activated: P/L %.2f >= %.2f, floor %.2f", pl, actUSD, g_trailFloor));
+      DeleteSameDirectionPendings();                  // stop adding into an extended move
+     }
+   else if(g_trailActive)
+     {
+      double newFloor = pl - distUSD;
+      if(newFloor > g_trailFloor)
+        {
+         g_trailFloor = newFloor;
+         GVSet(GV_TRAIL_FLOOR, g_trailFloor);
+         HydraLog(StringFormat("trail floor raised to %.2f (P/L %.2f)", g_trailFloor, pl));
+        }
+      DeleteSameDirectionPendings();                  // re-sweep any delete that failed earlier
+     }
+
+   // --- Basket-wide exits: every path closes EVERYTHING
+   if(g_trailActive && pl <= g_trailFloor)
+     {
+      CloseBasket(StringFormat("trail floor hit — P/L %.2f <= floor %.2f (%.2f lots)", pl, g_trailFloor, volume));
+      return;
+     }
+   if(pl >= tpUSD)
+     {
+      CloseBasket(StringFormat("basket TP — P/L %.2f >= %.2f (%.2f lots)", pl, tpUSD, volume));
+      return;
+     }
+   if(pl <= -slUSD)
+      CloseBasket(StringFormat("basket SL — P/L %.2f <= -%.2f (%.2f lots)", pl, slUSD, volume));
+  }
+
+//--- Single exit path for every basket close: flatten, clean up,
+//    short post-exit cooldown so re-entry re-passes all gates
+void CloseBasket(const string reason)
+  {
+   HydraLog("BASKET EXIT — " + reason);
+   CloseAllHydraPositions();
+   DeleteAllHydraPendings();
+   datetime until = (datetime)((long)TimeCurrent() + POST_EXIT_COOLDOWN_SEC);
+   GVSet(GV_COOLDOWN_UNTIL, (double)(long)until);
+   SetState(STATE_COOLDOWN, StringFormat("post-exit cooldown until %s", TimeToString(until, TIME_DATE|TIME_SECONDS)));
+  }
+
+//--- Delete unfilled pendings on the LOCKED side (trail activation:
+//    stop pyramiding into an extended move). Opposite-side pendings
+//    (OCO off reversal hedge) are left untouched.
+void DeleteSameDirectionPendings()
+  {
+   if(g_lockedDir == 0)
+      return;
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      ulong ticket = OrderGetTicket(i);
+      if(ticket == 0 || !IsHydraOrder())
+         continue;
+      long type = OrderGetInteger(ORDER_TYPE);
+      bool same = (g_lockedDir > 0) ? (type == ORDER_TYPE_BUY_STOP)
+                                    : (type == ORDER_TYPE_SELL_STOP);
+      if(!same)
+         continue;
+      MqlTradeRequest req;
+      MqlTradeResult  res;
+      ZeroMemory(req);
+      ZeroMemory(res);
+      req.action = TRADE_ACTION_REMOVE;
+      req.order  = ticket;
+      if(!OrderSend(req, res) || res.retcode != TRADE_RETCODE_DONE)
+         HydraLog(StringFormat("delete same-side pending #%I64u failed — retcode %d (will retry)", ticket, res.retcode));
+     }
   }
 
 //+------------------------------------------------------------------+
@@ -956,6 +1065,9 @@ void ResetGridRuntime()
    g_lastSellFill      = 0;
    g_ocoCleanupPending = false;
    g_armedAt           = 0;
+   g_trailActive       = false;
+   g_trailFloor        = 0.0;
+   GVSet(GV_TRAIL_FLOOR, 0.0);
   }
 
 //--- Persistent global variables, namespaced per symbol
