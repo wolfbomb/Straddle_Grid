@@ -8,7 +8,8 @@ report, and exits.
 ```
 tools/strategy-tester/
 ├── README.md            ← this file
-├── run_tests.bat        ← double-click runner (edit 2 paths first)
+├── run_tests.bat        ← Windows runner (edit 2 paths first)
+├── run_tests.sh         ← macOS runner (official Mac MT5 / Wine wrapper)
 ├── presets/             ← EA input presets (copied to MQL5\Presets)
 │   ├── hydra_01_defaults_smoke.set
 │   ├── hydra_02_deploy_fills.set
@@ -20,6 +21,20 @@ tools/strategy-tester/
     ├── hydra_03_ttl_expiry.ini
     └── hydra_04_whipsaw_guard.ini
 ```
+
+## Which runner?
+
+- **Windows** (or MT5 inside a Parallels/VMware Windows VM): `run_tests.bat` — run it
+  *inside* Windows, not from macOS.
+- **macOS with the official MT5 for Mac** (the MetaQuotes Wine wrapper):
+  `./run_tests.sh` from Terminal. First time: `chmod +x run_tests.sh`.
+  It auto-detects the standard install; override with env vars if yours differs:
+  `MT5_APP="/Applications/MetaTrader 5.app" WINEPREFIX_DIR="$HOME/Library/Application Support/net.metaquotes.wine.metatrader5" ./run_tests.sh`
+- **If the script can't drive your Mac install** (Wine wrappers vary by version), the
+  fallback is the GUI with the same presets: copy `presets/*.set` into the data folder's
+  `MQL5/Presets`, open the Strategy Tester panel, pick the EA/symbol/M1/"Every tick based
+  on real ticks", load the scenario's `.set` in the Inputs tab, set the dates from the
+  matching `.ini`, and press Start. Same test, four clicks more.
 
 ## One-time setup
 
