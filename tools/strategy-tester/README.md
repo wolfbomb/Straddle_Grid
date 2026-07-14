@@ -24,8 +24,12 @@ tools/strategy-tester/
 
 ## Which runner?
 
-- **Windows** (or MT5 inside a Parallels/VMware Windows VM): `run_tests.bat` — run it
-  *inside* Windows, not from macOS.
+- **Windows, Git Bash / MINGW64**: `./run_tests.sh` — it detects Windows and drives the
+  native `terminal64.exe` directly. Auto-detects the repo-as-data-folder layout
+  (terminal64.exe + `MQL5\` in the repo root, e.g. `D:\Straddle_Grid`); override with
+  `TERMINAL=/d/path/terminal64.exe DATADIR=/d/path ./run_tests.sh` if yours differs.
+- **Windows, plain cmd/Explorer** (or MT5 inside a Parallels/VMware Windows VM):
+  `run_tests.bat` — same auto-detection; edit the OVERRIDES block at the top if needed.
 - **macOS with the official MT5 for Mac** (the MetaQuotes Wine wrapper):
   `./run_tests.sh` from Terminal. First time: `chmod +x run_tests.sh`.
   It auto-detects the standard install; override with env vars if yours differs:
@@ -39,20 +43,21 @@ tools/strategy-tester/
 ## One-time setup
 
 1. **Compile the EA first** in MetaEditor (the tester runs the compiled `.ex5`).
-2. Find your **data folder**: in MT5 → `File → Open Data Folder`. Note the full path
-   (looks like `C:\Users\<you>\AppData\Roaming\MetaQuotes\Terminal\<long-hex-id>`).
-3. Edit the two `set` lines at the top of `run_tests.bat`:
-   - `TERMINAL` = full path to your `terminal64.exe`
-   - `DATADIR`  = the data folder path from step 2
-4. Make sure your **demo login is saved** in the terminal (the tester downloads
+2. If auto-detection can't find your install: find your **data folder** in MT5 →
+   `File → Open Data Folder` (standard installs look like
+   `C:\Users\<you>\AppData\Roaming\MetaQuotes\Terminal\<long-hex-id>`), then either
+   export `DATADIR`/`TERMINAL` before `./run_tests.sh` or edit the OVERRIDES block
+   at the top of `run_tests.bat`.
+3. Make sure your **demo login is saved** in the terminal (the tester downloads
    XAUUSD-VIP tick history through it) and then **close MT5** — the runner starts
-   its own instances and a already-running terminal blocks them.
-5. First run of each date range is slow: the terminal downloads real tick data.
+   its own instances and an already-running terminal blocks them.
+4. First run of each date range is slow: the terminal downloads real tick data.
    Subsequent runs on the same range are fast (data is cached).
 
 ## Running
 
-Double-click `run_tests.bat`. It copies the presets into `MQL5\Presets`, then runs
+Run `./run_tests.sh` from Git Bash (or double-click `run_tests.bat`). It copies the
+presets into `MQL5\Presets` (converting to the UTF-16 encoding MT5 requires), then runs
 the four configs one after another (each terminal instance closes itself when done).
 
 **Results to send back:**

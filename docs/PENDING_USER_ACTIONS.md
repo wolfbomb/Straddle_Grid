@@ -8,7 +8,8 @@
 > grid deploy 9+9 with correct prices/lots · OCO cancel · sequential fills · TTL expiry/redeploy ·
 > whipsaw guard (4 firings, cooldowns, 2/2 daily lockout, day-roll reset).
 >
-> 🚀 Shortcut: `tools/strategy-tester/run_tests.sh` (macOS) — see its README.
+> 🚀 Shortcut: `tools/strategy-tester/run_tests.sh` — now works from Windows Git Bash too
+> (auto-detects `D:\Straddle_Grid` as terminal + data folder); see its README.
 
 ## 1. Recompile (required) — ✅ done 2026-07-14
 

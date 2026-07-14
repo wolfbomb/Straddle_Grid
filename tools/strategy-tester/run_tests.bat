@@ -1,32 +1,57 @@
 @echo off
 setlocal enabledelayedexpansion
 REM ============================================================
-REM  Hydra — automated Strategy Tester runs
-REM  EDIT THE TWO PATHS BELOW BEFORE FIRST RUN
-REM ============================================================
-set "TERMINAL=C:\Program Files\MetaTrader 5\terminal64.exe"
-set "DATADIR=C:\Users\YOURNAME\AppData\Roaming\MetaQuotes\Terminal\YOUR-TERMINAL-ID"
-REM   ^ MT5: File -> Open Data Folder, copy that path here
+REM  Hydra - automated Strategy Tester runs (Windows)
+REM
+REM  Auto-detects the repo-as-data-folder layout (terminal64.exe and
+REM  MQL5\ in the repo root, e.g. D:\Straddle_Grid). If your setup
+REM  differs, edit TERMINAL / DATADIR in the OVERRIDES block below.
 REM ============================================================
 
-if not exist "%TERMINAL%" (
-    echo [ERROR] terminal64.exe not found at: %TERMINAL%
+REM ---- OVERRIDES (leave empty for auto-detection) -------------
+set "TERMINAL="
+set "DATADIR="
+REM   DATADIR = MT5 data folder (MT5: File -> Open Data Folder)
+REM   TERMINAL = full path to terminal64.exe
+REM --------------------------------------------------------------
+
+for %%I in ("%~dp0..\..") do set "REPO_ROOT=%%~fI"
+
+if not defined DATADIR if exist "%REPO_ROOT%\MQL5\Experts\SIGMA" set "DATADIR=%REPO_ROOT%"
+if not defined DATADIR (
+    echo [ERROR] MT5 data folder not auto-detected.
+    echo         Edit DATADIR at the top of this script
+    echo         ^(MT5: File -^> Open Data Folder shows the path^).
+    pause & exit /b 1
+)
+
+if not defined TERMINAL if exist "%DATADIR%\terminal64.exe" set "TERMINAL=%DATADIR%\terminal64.exe"
+if not defined TERMINAL if exist "C:\Program Files\MetaTrader 5\terminal64.exe" set "TERMINAL=C:\Program Files\MetaTrader 5\terminal64.exe"
+if not defined TERMINAL (
+    echo [ERROR] terminal64.exe not found.
     echo         Edit TERMINAL at the top of this script.
     pause & exit /b 1
 )
-if not exist "%DATADIR%\MQL5\Presets" (
-    echo [ERROR] Data folder not found at: %DATADIR%
-    echo         Edit DATADIR at the top of this script.
-    pause & exit /b 1
-)
+
+REM /portable keeps the tester writing into DATADIR when the terminal
+REM lives inside it (repo-as-data-folder layout).
+set "PORTABLE="
+if /I "%TERMINAL%"=="%DATADIR%\terminal64.exe" set "PORTABLE=/portable"
+
 if not exist "%DATADIR%\MQL5\Experts\SIGMA\Straddle_Grid.ex5" (
     echo [WARN] Compiled EA not found at MQL5\Experts\SIGMA\Straddle_Grid.ex5
     echo        Compile Straddle_Grid.mq5 in MetaEditor first, then rerun.
     pause & exit /b 1
 )
 
-echo Copying presets to MQL5\Presets ...
-copy /Y "%~dp0presets\*.set" "%DATADIR%\MQL5\Presets\" >nul
+echo Terminal:    %TERMINAL% %PORTABLE%
+echo Data folder: %DATADIR%
+echo.
+echo Copying presets (UTF-16 conversion) to MQL5\Presets ...
+if not exist "%DATADIR%\MQL5\Presets" mkdir "%DATADIR%\MQL5\Presets"
+REM MT5 expects .set files in UTF-16LE; plain UTF-8 is silently ignored
+REM and the run falls back to default inputs.
+powershell -NoProfile -Command "Get-ChildItem '%~dp0presets\*.set' | ForEach-Object { Get-Content $_.FullName | Set-Content -Encoding Unicode (Join-Path '%DATADIR%\MQL5\Presets' $_.Name) }"
 
 echo.
 echo NOTE: MetaTrader 5 must be CLOSED before the runs start.
@@ -38,7 +63,7 @@ pause
 for %%C in ("%~dp0configs\*.ini") do (
     echo ------------------------------------------------------------
     echo Running %%~nxC ...
-    "%TERMINAL%" /config:"%%~fC"
+    "%TERMINAL%" %PORTABLE% /config:"%%~fC"
     echo Finished %%~nxC
 )
 
