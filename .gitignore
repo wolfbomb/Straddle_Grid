@@ -21,3 +21,7 @@ MQL5/Profiles/Tester/
 .DS_Store
 Thumbs.db
 wine_noise.log
+
+# Tester account credentials (never commit) + generated merged configs
+tools/strategy-tester/configs/common.local.ini
+tools/strategy-tester/.merged/

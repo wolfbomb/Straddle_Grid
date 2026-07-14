@@ -44,6 +44,21 @@ if not exist "%DATADIR%\MQL5\Experts\SIGMA\Straddle_Grid.ex5" (
     pause & exit /b 1
 )
 
+if not exist "%~dp0configs\common.local.ini" (
+    echo [ERROR] Missing configs\common.local.ini ^(your MT5 DEMO login/password/server^).
+    echo.
+    echo         MT5's command-line tester needs an authenticated [Common] session to
+    echo         actually run automated tests. Without it, terminal64.exe silently opens
+    echo         your normal saved terminal session instead of testing - no error, no
+    echo         report ^(this is what happened on 2026-07-14: it just recovered the
+    echo         live/demo position and pending orders already on the default profile^).
+    echo.
+    echo         Fix: copy configs\common.local.ini.example to configs\common.local.ini
+    echo         and fill in your DEMO account's Login/Password/Server. That file is
+    echo         gitignored - it will never be committed.
+    pause & exit /b 1
+)
+
 echo Terminal:    %TERMINAL% %PORTABLE%
 echo Data folder: %DATADIR%
 echo.
@@ -54,6 +69,15 @@ REM and the run falls back to default inputs.
 powershell -NoProfile -Command "Get-ChildItem '%~dp0presets\*.set' | ForEach-Object { Get-Content $_.FullName | Set-Content -Encoding Unicode (Join-Path '%DATADIR%\MQL5\Presets' $_.Name) }"
 
 echo.
+echo Merging your local login into each test config ...
+if not exist "%~dp0.merged" mkdir "%~dp0.merged"
+for %%C in ("%~dp0configs\*.ini") do (
+    if /I not "%%~nxC"=="common.local.ini" (
+        copy /b "%~dp0configs\common.local.ini"+"%%C" "%~dp0.merged\%%~nxC" >nul
+    )
+)
+
+echo.
 echo NOTE: MetaTrader 5 must be CLOSED before the runs start.
 echo Each run opens its own terminal, tests, writes a report, and exits.
 echo First run per date range downloads tick data - be patient.
@@ -61,10 +85,12 @@ echo.
 pause
 
 for %%C in ("%~dp0configs\*.ini") do (
-    echo ------------------------------------------------------------
-    echo Running %%~nxC ...
-    "%TERMINAL%" %PORTABLE% /config:"%%~fC"
-    echo Finished %%~nxC
+    if /I not "%%~nxC"=="common.local.ini" (
+        echo ------------------------------------------------------------
+        echo Running %%~nxC ...
+        "%TERMINAL%" %PORTABLE% /config:"%~dp0.merged\%%~nxC"
+        echo Finished %%~nxC
+    )
 )
 
 echo ------------------------------------------------------------

@@ -1,0 +1,18 @@
+; Copy this file to "common.local.ini" in this same folder and fill in your
+; DEMO account credentials below. common.local.ini is listed in .gitignore —
+; it will never be committed. Do not paste its contents into chat, issues,
+; commit messages, or logs.
+;
+; Why this file exists: MT5's command-line Strategy Tester needs an
+; authenticated [Common] session to actually run automated tests. Without
+; it, terminal64.exe silently opens your normal saved terminal session
+; instead of testing — no error, no report, and (as discovered 2026-07-14)
+; it can recover/display whatever live or demo positions and pending
+; orders already exist on that default session's charts.
+;
+; Use your DEMO account only. Never put live-account credentials here.
+
+[Common]
+Login=YOUR_DEMO_LOGIN
+Password=YOUR_DEMO_PASSWORD
+Server=YOUR_BROKER_DEMO_SERVER

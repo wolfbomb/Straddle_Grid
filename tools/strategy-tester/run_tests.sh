@@ -18,6 +18,8 @@ set -u
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$HERE/../.." && pwd)"
+COMMON_INI="$HERE/configs/common.local.ini"
+MERGED_DIR="$HERE/.merged"
 
 fail() { echo "[ERROR] $*" >&2; exit 1; }
 
@@ -25,6 +27,28 @@ convert_set_utf16() {   # $1 = src.set  $2 = dest.set
     # MT5 expects .set preset files in UTF-16LE (with BOM); a plain
     # UTF-8 file is silently ignored and the run falls back to defaults.
     { printf '\xff\xfe'; iconv -f UTF-8 -t UTF-16LE "$1"; } > "$2"
+}
+
+check_common_ini() {
+    [ -f "$COMMON_INI" ] || fail "Missing $COMMON_INI (your MT5 DEMO account login/password/server).
+
+MT5's command-line tester needs an authenticated [Common] session to actually
+run automated tests. Without it, terminal64.exe silently opens your normal
+saved terminal session instead of testing — no error, no report (this is what
+happened on 2026-07-14: it just recovered the live/demo position and pending
+orders already sitting on the default chart profile).
+
+Fix: copy configs/common.local.ini.example to configs/common.local.ini and
+fill in your DEMO account's Login/Password/Server. That file is gitignored —
+it will never be committed. Do not paste its contents back into chat."
+}
+
+merge_config() {   # $1 = original ini path  ->  echoes merged path
+    NAME="$(basename "$1")"
+    MERGED="$MERGED_DIR/$NAME"
+    mkdir -p "$MERGED_DIR"
+    { cat "$COMMON_INI"; echo; cat "$1"; } > "$MERGED"
+    echo "$MERGED"
 }
 
 case "$(uname -s)" in
@@ -61,6 +85,8 @@ if [ "$PLATFORM" = windows ]; then
     [ -f "$DATADIR/MQL5/Experts/SIGMA/Straddle_Grid.ex5" ] \
         || fail "Compiled EA not found at MQL5/Experts/SIGMA/Straddle_Grid.ex5 — compile in MetaEditor first."
 
+    check_common_ini
+
     # /portable keeps the tester writing into DATADIR when the terminal
     # lives inside it (repo-as-data-folder layout).
     PORTABLE=""
@@ -84,8 +110,10 @@ if [ "$PLATFORM" = windows ]; then
     read -r -p "Press Enter to start..."
 
     for INI in "$HERE/configs/"*.ini; do
+        [ "$(basename "$INI")" = "common.local.ini" ] && continue
         NAME="$(basename "$INI")"
-        WIN_INI="$(cygpath -w "$INI")"
+        MERGED="$(merge_config "$INI")"
+        WIN_INI="$(cygpath -w "$MERGED")"
         echo "------------------------------------------------------------"
         echo "Running $NAME ..."
         # MSYS mangles /flag:path arguments into POSIX paths; suppress that.
@@ -124,6 +152,8 @@ if [ ! -f "$DATA_DIR/MQL5/Experts/SIGMA/Straddle_Grid.ex5" ]; then
     exit 1
 fi
 
+check_common_ini
+
 # Locate the wine loader bundled inside the app (name/path varies by build)
 WINE_BIN="$(find "$MT5_APP/Contents" -type f \( -name 'wine64' -o -name 'wine' \) -perm +111 2>/dev/null | head -1)"
 
@@ -132,7 +162,12 @@ mkdir -p "$DATA_DIR/MQL5/Presets" "$MT5_DIR_C/hydra_configs"
 for SET in "$HERE/presets/"*.set; do
     convert_set_utf16 "$SET" "$DATA_DIR/MQL5/Presets/$(basename "$SET")"
 done
-cp -f "$HERE/configs/"*.ini "$MT5_DIR_C/hydra_configs/"
+mkdir -p "$MERGED_DIR"
+for INI in "$HERE/configs/"*.ini; do
+    [ "$(basename "$INI")" = "common.local.ini" ] && continue
+    merge_config "$INI" >/dev/null
+done
+cp -f "$MERGED_DIR/"*.ini "$MT5_DIR_C/hydra_configs/"
 
 echo
 echo "NOTE: Quit MetaTrader 5 before continuing (Cmd+Q, check the Dock)."
@@ -141,6 +176,7 @@ echo "First run per date range downloads tick data — be patient."
 read -r -p "Press Enter to start..."
 
 for INI in "$HERE/configs/"*.ini; do
+    [ "$(basename "$INI")" = "common.local.ini" ] && continue
     NAME="$(basename "$INI")"
     WIN_CFG="C:\\Program Files\\MetaTrader 5\\hydra_configs\\$NAME"
     echo "------------------------------------------------------------"

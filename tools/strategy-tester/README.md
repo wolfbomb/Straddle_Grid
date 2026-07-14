@@ -16,6 +16,7 @@ tools/strategy-tester/
 │   ├── hydra_03_ttl_expiry.set
 │   └── hydra_04_whipsaw_guard.set
 └── configs/             ← tester launch configs (one per scenario)
+    ├── common.local.ini.example  ← template for your login (copy → common.local.ini)
     ├── hydra_01_defaults_smoke.ini
     ├── hydra_02_deploy_fills.ini
     ├── hydra_03_ttl_expiry.ini
@@ -48,10 +49,21 @@ tools/strategy-tester/
    `C:\Users\<you>\AppData\Roaming\MetaQuotes\Terminal\<long-hex-id>`), then either
    export `DATADIR`/`TERMINAL` before `./run_tests.sh` or edit the OVERRIDES block
    at the top of `run_tests.bat`.
-3. Make sure your **demo login is saved** in the terminal (the tester downloads
-   XAUUSD-VIP tick history through it) and then **close MT5** — the runner starts
-   its own instances and an already-running terminal blocks them.
-4. First run of each date range is slow: the terminal downloads real tick data.
+3. **Create your login file (required):** copy `configs/common.local.ini.example` to
+   `configs/common.local.ini` and fill in your **DEMO account's** `Login` / `Password` /
+   `Server`. This file is in `.gitignore` and never gets committed — do not paste its
+   contents into chat, issues, or commit messages, and never put live-account
+   credentials in it. **This step is not optional**: MT5's command-line tester needs an
+   authenticated `[Common]` session to actually run automated tests. Without it,
+   `terminal64.exe` silently opens your normal saved terminal session instead of
+   testing — no error, no report (discovered 2026-07-14: a run with no
+   `common.local.ini` just reopened the default chart profile and recovered whatever
+   live/demo position and pending orders were already sitting on those charts). The
+   runner now refuses to start if this file is missing.
+4. Make sure that same **demo login is saved/valid** for the terminal (the tester
+   downloads XAUUSD-VIP tick history through it) and then **close MT5** — the runner
+   starts its own instances and an already-running terminal blocks them.
+5. First run of each date range is slow: the terminal downloads real tick data.
    Subsequent runs on the same range are fast (data is cached).
 
 ## Running
