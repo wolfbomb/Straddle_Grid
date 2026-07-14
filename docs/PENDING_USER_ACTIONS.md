@@ -10,10 +10,15 @@
 >
 > 🚀 Shortcut: `tools/strategy-tester/run_tests.sh` (macOS) — see its README.
 
-## 1. Recompile (required)
+## 1. Recompile (required) — ✅ done 2026-07-14
 
 `git pull`, open MetaEditor, compile `Straddle_Grid.mq5` → must be **0 errors / 0 warnings**.
 The build must log `SIGMA Hydra v1.9` — your last run still used the v1.6 binary.
+
+Confirmed via `MQL5/logs/20260714.log`: `SIGMA Hydra v1.9 initializing on XAUUSD-VIP` present.
+**Note:** every run since has `AUTO_TRADING_ENABLED=false` → gate 5 fails immediately each tick,
+so no grid has deployed yet. Section 2 below is still fully outstanding — flip
+`AUTO_TRADING_ENABLED=true` in the tester inputs before rerunning the suite.
 
 ## 2. Phase 6 — Basket Manager tests
 
