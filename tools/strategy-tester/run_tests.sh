@@ -26,7 +26,19 @@ fail() { echo "[ERROR] $*" >&2; exit 1; }
 convert_set_utf16() {   # $1 = src.set  $2 = dest.set
     # MT5 expects .set preset files in UTF-16LE (with BOM); a plain
     # UTF-8 file is silently ignored and the run falls back to defaults.
-    { printf '\xff\xfe'; iconv -f UTF-8 -t UTF-16LE "$1"; } > "$2"
+    if command -v iconv >/dev/null 2>&1; then
+        { printf '\xff\xfe'; iconv -f UTF-8 -t UTF-16LE "$1"; } > "$2"
+    elif [ "${PLATFORM:-}" = windows ]; then
+        # Git Bash/MSYS commonly ships without iconv; PowerShell (always
+        # present on Windows) does the same conversion natively. A failed
+        # iconv here would otherwise silently truncate $2 to just the BOM
+        # (the redirection still creates the file even though iconv errors),
+        # producing an empty preset MT5 loads without complaint.
+        powershell -NoProfile -Command \
+            "Get-Content -Path '$(cygpath -w "$1")' | Set-Content -Encoding Unicode -Path '$(cygpath -w "$2")'"
+    else
+        fail "iconv not found and no UTF-16 fallback available for converting $1"
+    fi
 }
 
 check_common_ini() {
