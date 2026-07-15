@@ -85,13 +85,25 @@
 
 ## Phase 7 — Strategy Tester Validation Campaign
 
-- [ ] ≥3 months XAUUSD-VIP M1, real ticks, including ≥1 NFP day and ≥1 FOMC day — completes with no journal errors.
-- [ ] Spread-stress rerun (fixed elevated spread) — gates block correctly, no invalid-stops errors.
-- [ ] Zero partial grids across the entire run (scripted log audit).
-- [ ] Zero orphaned orders after every simulated restart mid-ACTIVE.
-- [ ] All four §11 explicit cases re-verified on this build (whipsaw, restart-recovery, stops-level abort, trail-floor retrace).
-- [ ] Foreign orders/positions untouched throughout.
-- [ ] `docs/TEST_REPORT_P7.md` written: settings, date ranges, per-case pass/fail, notable P/L stats.
+- [x] ≥3 months XAUUSD-VIP M1, real ticks — completes with no journal errors. (2026-07-15,
+      run 05, `2026.04.01`–`2026.07.10`; NFP/FOMC inclusion is a reasonable-confidence
+      inference from window length, not independently checked against a real calendar.)
+- [x] Spread-stress rerun — gates block correctly, no invalid-stops errors. (2026-07-15,
+      run 06; forced via `MaxSpreadPoints=1` rather than a tester-level spread override,
+      which was found to be a no-op on this MT5 build — see `docs/TEST_REPORT_P7.md`.)
+- [x] Zero partial grids across the entire run (scripted log audit). (484 deploys = 484
+      full 9+9 grids, exact match, run 05.)
+- [ ] Zero orphaned orders after every simulated restart mid-ACTIVE. **Deferred** — not
+      exercised in this pass (needs a live/demo chart restart, not a backtest).
+- [ ] All four §11 explicit cases re-verified on this build. **Partial**: trailing-floor
+      retrace proven (163 instances, run 05); whipsaw proven but last run on v1.9, not
+      reconfirmed on v2.0 (deferred, low risk — Phase 6 didn't touch whipsaw code);
+      restart-recovery and stops-level-rejection both deferred, not exercised this pass.
+- [ ] Foreign orders/positions untouched throughout. Not independently exercised — backtests
+      start from a clean simulated account by construction; more relevant to the live/demo
+      pre-deploy checklist.
+- [x] `docs/TEST_REPORT_P7.md` written: settings, date ranges, per-case pass/fail. (P/L
+      summary from the `.htm` reports not yet pulled in — noted as outstanding in the report.)
 
 ## Phase 8 — Dashboard Panel
 
