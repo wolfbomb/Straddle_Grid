@@ -24,7 +24,8 @@ tools/strategy-tester/
     ├── hydra_03_ttl_expiry.ini
     ├── hydra_04_whipsaw_guard.ini
     ├── hydra_05_phase7_campaign.ini
-    └── hydra_06_spread_stress.ini
+    ├── hydra_06_spread_stress.ini
+    └── hydra_dash_visual.ini     ← Visual=1 dashboard eyeball check (not a pass/fail test)
 ```
 
 ## Which runner?
@@ -102,6 +103,7 @@ than the short 01–04 scenarios.
 | **04 whipsaw guard** | Auto ON, `OCO_Mode=false`, ATR ceiling + spread cap raised so the gates don't block the news candle | **a violent news day** — default is set to an NFP-style first-Friday; adjust to any big-range day you can see on the chart | `WHIPSAW DETECTED … gap N s` → all positions closed, all pendings deleted → `COOLDOWN (1/2 today)` |
 | **05 Phase 7 campaign** | Full production defaults, nothing weakened | ~3 months (`2026.04.01`–`2026.07.10` by default), chosen to include multiple NFP days and at least one FOMC day | Runs clean end to end: no journal errors, zero partial grids, gates/deploy/fills/whipsaw/basket all interacting correctly over the long window |
 | **06 spread stress** | Full production defaults + `MaxSpreadPoints=1` (below any real spread, so gate 3 blocks on real historical spread every time — not a tester-engine spread override, see note below) | ~6 weeks (`2026.06.01`–`2026.07.10` by default) | **Zero orders the entire run** — only clean `gates FAIL - gate 3 (Spread): N > max 1` lines, no "invalid stops" errors |
+| **dash_visual** | Same inputs/date range as run 02 — that window is already known to cycle IDLE→ARMED→ACTIVE (TP win, SL loss)→COOLDOWN multiple times in 4 days | `2026.07.06`–`2026.07.10` | Not a pass/fail test — `Visual=1`, `ShutdownTerminal=0`: opens the interactive tester chart so you can eyeball the Phase 8 dashboard cycle through every state/color without babysitting the Strategy Tester GUI settings by hand. Use the speed slider / pause button once it opens. |
 
 ⚠ Run 04's preset **deliberately weakens gates 2–3** (ATR/spread caps) so the test can
 reach the whipsaw — those values are for this test only, never for live/demo charts.

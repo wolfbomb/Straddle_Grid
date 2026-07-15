@@ -72,12 +72,19 @@ swap them for plain-ASCII fallbacks.
 
 ### 2. Visual check — two ways to see it
 
-**Fastest way to see every state (recommended):** run any of the existing tester configs in
-**Visual mode** (`Visual=1` in the `.ini`, or just tick "Visual" in the Strategy Tester panel
-if running via the GUI) — `hydra_02_deploy_fills` is a good pick since it deploys, fills,
-and exits within a short window. Watching it in visual mode cycles the panel through
-IDLE → ARMED → ACTIVE (both profit and drawdown) → COOLDOWN in minutes, so you can eyeball
-every accent color and row in one sitting.
+**Fastest way to see every state (recommended, one command):**
+
+```bash
+cd /d/Straddle_Grid/tools/strategy-tester
+./run_tests.sh hydra_dash_visual
+```
+
+This opens the interactive Tester chart (`Visual=1`) on the same 4-day window already known
+to cycle the EA through every state — IDLE → ARMED → ACTIVE (both a TP win and an SL loss) →
+COOLDOWN, several times — so you can eyeball every accent color and row in one sitting
+without touching the Strategy Tester GUI settings by hand. `ShutdownTerminal=0` so the
+window stays open; use the speed slider to run it faster, or Pause to freeze a frame and
+take a screenshot. Close the window when you're done watching — the script will then finish.
 
 **Or:** attach the EA to a live/demo XAUUSD-VIP M1 chart with `AUTO_TRADING_ENABLED=false`
 (safe — places nothing) — you'll only ever see gray IDLE, but it's a quick sanity check that
