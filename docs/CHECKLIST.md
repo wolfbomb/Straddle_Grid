@@ -107,7 +107,7 @@
 
 ## Phase 8 — Dashboard Panel
 
-- [ ] Header reads `SIGMA Hydra v1.8` (from the constant), top-left, expanded by default.
+- [ ] Header reads `SIGMA Hydra <HYDRA_VERSION>` (sourced from the constant, matches the compiled build), top-left, expanded by default.
 - [ ] Click header → collapses to title bar + ▲/▼; click again → expands.
 - [ ] Switch timeframe M1→M5→M1 → panel rebuilt, collapse state preserved.
 - [ ] Accent colors: gray IDLE, blue ARMED, green ACTIVE in profit, red ACTIVE in drawdown, orange COOLDOWN (force each state and eyeball).

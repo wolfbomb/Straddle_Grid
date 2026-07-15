@@ -7,7 +7,7 @@
 //| progression. Spec: CLAUDE.md (repo root). Build plan:            |
 //| PHASE_PROMPTS.md. Tests: docs/CHECKLIST.md.                      |
 //|                                                                  |
-//| Phase 6 — Basket Manager (on Phases 1–5).                        |
+//| Phase 8 — Dashboard Panel (on Phases 1–7).                       |
 //| Places orders ONLY when all five gates pass, which requires      |
 //| AUTO_TRADING_ENABLED=true (default false).                       |
 //|                                                                  |
@@ -114,6 +114,20 @@ bool     g_ocoCleanupPending = false;       // opposite-side deletion outstandin
 bool     g_trailActive = false;             // trailing engaged for the current basket
 double   g_trailFloor  = 0.0;               // locked profit floor (ratchets up only)
 
+//--- Dashboard (Phase 8)
+#define DASH_PREFIX     "SIGMA.Hydra.Dash."
+#define DASH_X          8
+#define DASH_Y          20                  // offset down a bit to reduce overlap with the
+                                             // terminal's native top-left symbol/price label
+#define DASH_WIDTH      280
+#define DASH_HEADER_H   24
+#define DASH_ROW_H      16
+#define DASH_ROWS       10
+#define DASH_FONT       "Consolas"
+#define DASH_FONTSIZE   8
+bool     g_dashCollapsed = false;           // default expanded (CLAUDE.md §10.1)
+bool     g_dashBuilt     = false;           // objects created at least once this session
+
 //+------------------------------------------------------------------+
 //| ================== ONINIT (STATE RECOVERY) ====================== |
 //+------------------------------------------------------------------+
@@ -160,6 +174,9 @@ int OnInit()
       HydraLog("WARNING: iATR(14,M5) handle creation failed — gate 2 will fail until available");
 
    RecoverState();
+
+   BuildDashboard();     // Phase 8: panel appears immediately, before the first tick
+   UpdateDashboard();
 
    return(INIT_SUCCEEDED);
   }
@@ -219,6 +236,7 @@ void OnDeinit(const int reason)
       IndicatorRelease(g_atrHandle);
       g_atrHandle = INVALID_HANDLE;
      }
+   RemoveDashboard();   // Phase 8: no leftover chart objects on removal
    HydraLog(StringFormat("deinit (reason %d), state=%s", reason, StateName(g_state)));
   }
 
@@ -322,6 +340,8 @@ void OnTick()
          break;
         }
      }
+
+   UpdateDashboard();   // Phase 8: cheap property refresh only, every tick
   }
 
 //+------------------------------------------------------------------+
@@ -912,10 +932,12 @@ datetime NextServerDayStart()
 //| Targets scale with filled volume: effective = input × (vol/0.01).|
 //| Runs AFTER CheckWhipsawGuard() in ACTIVE — never reorder.        |
 //+------------------------------------------------------------------+
-void ManageBasket()
+//--- Aggregate volume + floating P/L (incl. swap) across all Hydra
+//    positions on this symbol. Shared by ManageBasket() and the dashboard.
+void GetBasketPL(double &volume, double &pl)
   {
-   double volume = 0.0;
-   double pl     = 0.0;   // floating P/L incl. swap (commission lives on deals, not positions)
+   volume = 0.0;
+   pl     = 0.0;   // floating P/L incl. swap (commission lives on deals, not positions)
    for(int i = PositionsTotal() - 1; i >= 0; i--)
      {
       if(PositionGetTicket(i) == 0 || !IsHydraPosition())
@@ -923,6 +945,12 @@ void ManageBasket()
       volume += PositionGetDouble(POSITION_VOLUME);
       pl     += PositionGetDouble(POSITION_PROFIT) + PositionGetDouble(POSITION_SWAP);
      }
+  }
+
+void ManageBasket()
+  {
+   double volume, pl;
+   GetBasketPL(volume, pl);
    if(volume <= 0.0)
       return;
 
@@ -1010,17 +1038,291 @@ void DeleteSameDirectionPendings()
 
 //+------------------------------------------------------------------+
 //| ======================== DASHBOARD ============================== |
-//| Phase 8: collapsible panel per CLAUDE.md §10.1. Header sources   |
-//| its version from HYDRA_VERSION — never hardcode it twice.        |
+//| Phase 8: collapsible read-only panel per CLAUDE.md §10.1. Header  |
+//| sources its version from HYDRA_VERSION — never hardcode it twice. |
+//| No trade buttons anywhere (SIGMA safety convention: the only      |
+//| master switch is AUTO_TRADING_ENABLED + the terminal button).     |
+//|                                                                    |
+//| Objects are created once (EnsureRect/EnsureLabel are idempotent)  |
+//| and every OnTick() call only updates their text/color properties  |
+//| — no per-tick delete+recreate. BuildDashboard() is only called on |
+//| init, on a collapse/expand toggle (geometry changes), and on a    |
+//| CHARTEVENT_CHART_CHANGE (timeframe switch) as a safety rebuild.   |
 //+------------------------------------------------------------------+
+
+//--- Accent color per state (CLAUDE.md §10.1): gray IDLE, blue ARMED,
+//    green ACTIVE-profit, red ACTIVE-drawdown, orange COOLDOWN
+color DashAccentColor()
+  {
+   switch(g_state)
+     {
+      case STATE_IDLE:     return(C'128,128,128');
+      case STATE_ARMED:    return(clrDodgerBlue);
+      case STATE_COOLDOWN: return(clrOrange);
+      case STATE_ACTIVE:
+        {
+         double volume, pl;
+         GetBasketPL(volume, pl);
+         return(pl >= 0.0 ? clrLimeGreen : clrCrimson);
+        }
+     }
+   return(clrGray);
+  }
+
+//--- Create a rectangle-label object if it doesn't exist yet; refresh its
+//    geometry/colors either way. Higher zorder draws on top.
+void EnsureRect(const string name, const int x, const int y, const int w, const int h,
+                const color bg, const color border, const int zorder)
+  {
+   if(ObjectFind(0, name) < 0)
+     {
+      ObjectCreate(0, name, OBJ_RECTANGLE_LABEL, 0, 0, 0);
+      ObjectSetInteger(0, name, OBJPROP_CORNER, CORNER_LEFT_UPPER);
+      ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
+      ObjectSetInteger(0, name, OBJPROP_SELECTED, false);
+      ObjectSetInteger(0, name, OBJPROP_HIDDEN, true);
+      ObjectSetInteger(0, name, OBJPROP_BACK, false);
+      ObjectSetInteger(0, name, OBJPROP_BORDER_TYPE, BORDER_FLAT);
+     }
+   ObjectSetInteger(0, name, OBJPROP_XDISTANCE, x);
+   ObjectSetInteger(0, name, OBJPROP_YDISTANCE, y);
+   ObjectSetInteger(0, name, OBJPROP_XSIZE, w);
+   ObjectSetInteger(0, name, OBJPROP_YSIZE, h);
+   ObjectSetInteger(0, name, OBJPROP_BGCOLOR, bg);
+   ObjectSetInteger(0, name, OBJPROP_COLOR, border);
+   ObjectSetInteger(0, name, OBJPROP_ZORDER, zorder);
+  }
+
+//--- Create a text label object if it doesn't exist yet
+void EnsureLabel(const string name, const int x, const int y, const color clr, const int zorder)
+  {
+   if(ObjectFind(0, name) < 0)
+     {
+      ObjectCreate(0, name, OBJ_LABEL, 0, 0, 0);
+      ObjectSetInteger(0, name, OBJPROP_CORNER, CORNER_LEFT_UPPER);
+      ObjectSetInteger(0, name, OBJPROP_ANCHOR, ANCHOR_LEFT_UPPER);
+      ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
+      ObjectSetInteger(0, name, OBJPROP_SELECTED, false);
+      ObjectSetInteger(0, name, OBJPROP_HIDDEN, true);
+      ObjectSetInteger(0, name, OBJPROP_BACK, false);
+      ObjectSetString(0, name, OBJPROP_FONT, DASH_FONT);
+      ObjectSetInteger(0, name, OBJPROP_FONTSIZE, DASH_FONTSIZE);
+     }
+   ObjectSetInteger(0, name, OBJPROP_XDISTANCE, x);
+   ObjectSetInteger(0, name, OBJPROP_YDISTANCE, y);
+   ObjectSetInteger(0, name, OBJPROP_COLOR, clr);
+   ObjectSetInteger(0, name, OBJPROP_ZORDER, zorder);
+  }
+
+//--- Show/hide one body row's object(s) without deleting them: OBJ_NO_PERIODS
+//    hides on every timeframe, OBJ_ALL_PERIODS restores visibility.
+void SetRowVisible(const string rowKey, const bool visible)
+  {
+   long tf = visible ? OBJ_ALL_PERIODS : OBJ_NO_PERIODS;
+   if(rowKey == "Gates")
+     {
+      for(int g = 0; g < GATE_COUNT; g++)
+         ObjectSetInteger(0, DASH_PREFIX + "Gate" + IntegerToString(g), OBJPROP_TIMEFRAMES, tf);
+      ObjectSetInteger(0, DASH_PREFIX + "GateFailName", OBJPROP_TIMEFRAMES, tf);
+     }
+   else
+      ObjectSetInteger(0, DASH_PREFIX + "Row_" + rowKey, OBJPROP_TIMEFRAMES, tf);
+  }
+
+//--- Create every dashboard object exactly once (idempotent) and apply the
+//    current collapsed/expanded geometry. Safe to call repeatedly.
+void BuildDashboard()
+  {
+   int panelH = g_dashCollapsed ? DASH_HEADER_H : DASH_HEADER_H + DASH_ROW_H * DASH_ROWS;
+
+   EnsureRect(DASH_PREFIX + "BG", DASH_X, DASH_Y, DASH_WIDTH, panelH, C'18,18,18', C'55,55,55', 0);
+   EnsureRect(DASH_PREFIX + "Header", DASH_X, DASH_Y, DASH_WIDTH, DASH_HEADER_H,
+             DashAccentColor(), DashAccentColor(), 1);
+   EnsureLabel(DASH_PREFIX + "HeaderText", DASH_X + 6, DASH_Y + 5, clrWhite, 2);
+
+   string rowKeys[DASH_ROWS] =
+     {
+      "State","Auto","Gates","Session","SpreadATR","Grid","BasketPL","Targets","Whipsaw","Expiry"
+     };
+   int y = DASH_Y + DASH_HEADER_H;
+   for(int i = 0; i < DASH_ROWS; i++)
+     {
+      int rowY = y + i * DASH_ROW_H + 2;
+      if(rowKeys[i] == "Gates")
+        {
+         for(int g = 0; g < GATE_COUNT; g++)
+            EnsureLabel(DASH_PREFIX + "Gate" + IntegerToString(g), DASH_X + 6 + g * 14, rowY, clrGray, 3);
+         EnsureLabel(DASH_PREFIX + "GateFailName", DASH_X + 6 + GATE_COUNT * 14 + 6, rowY, clrGray, 3);
+        }
+      else
+         EnsureLabel(DASH_PREFIX + "Row_" + rowKeys[i], DASH_X + 6, rowY, clrGainsboro, 3);
+      SetRowVisible(rowKeys[i], !g_dashCollapsed);
+     }
+
+   g_dashBuilt = true;
+   ChartRedraw(0);
+  }
+
+//--- Update one body row's text + color (Gates row is handled separately
+//    in UpdateDashboard() since it's five independently-colored dots)
+void SetRow(const string rowKey, const string text, const color clr)
+  {
+   string name = DASH_PREFIX + "Row_" + rowKey;
+   ObjectSetString(0, name, OBJPROP_TEXT, text);
+   ObjectSetInteger(0, name, OBJPROP_COLOR, clr);
+  }
+
+string SecondsToHHMMSS(const long totalSeconds)
+  {
+   long s = totalSeconds;
+   if(s < 0)
+      s = 0;
+   long h   = s / 3600;
+   long m   = (s % 3600) / 60;
+   long sec = s % 60;
+   return(StringFormat("%02d:%02d:%02d", (int)h, (int)m, (int)sec));
+  }
+
+//--- Refresh every row's live content. Called every OnTick() — cheap
+//    property updates only, never recreates objects (see header note).
 void UpdateDashboard()
   {
-   // Phase 8
+   if(!g_dashBuilt)
+      BuildDashboard();
+
+   color accent = DashAccentColor();
+   ObjectSetInteger(0, DASH_PREFIX + "Header", OBJPROP_BGCOLOR, accent);
+   ObjectSetInteger(0, DASH_PREFIX + "Header", OBJPROP_COLOR, accent);
+   ObjectSetString(0, DASH_PREFIX + "HeaderText", OBJPROP_TEXT,
+                   StringFormat("SIGMA Hydra %s  %s", HYDRA_VERSION, g_dashCollapsed ? "▲" : "▼"));
+
+   if(g_dashCollapsed)
+      return;   // body rows are hidden — nothing else to update
+
+   double volume, pl;
+   GetBasketPL(volume, pl);
+
+   // Row: State
+   string stateTxt = StateName(g_state);
+   if(g_state == STATE_ACTIVE)
+      stateTxt += (pl >= 0.0 ? " ▲" : " ▼");
+   SetRow("State", "State: " + stateTxt, accent);
+
+   // Row: Auto Trading
+   SetRow("Auto", AUTO_TRADING_ENABLED ? "Auto Trading: ON" : "Auto Trading: OFF",
+          AUTO_TRADING_ENABLED ? clrGainsboro : clrRed);
+
+   // Row: Gates — 5 independently-colored dots + the failing gate's name
+   string failName = "";
+   for(int g = 0; g < GATE_COUNT; g++)
+     {
+      color dot = clrGray;   // not yet evaluated this session
+      if(g_gateEvaluated[g])
+         dot = g_gatePass[g] ? clrLimeGreen : clrRed;
+      ObjectSetString(0, DASH_PREFIX + "Gate" + IntegerToString(g), OBJPROP_TEXT, "●");
+      ObjectSetInteger(0, DASH_PREFIX + "Gate" + IntegerToString(g), OBJPROP_COLOR, dot);
+      if(g_gateEvaluated[g] && !g_gatePass[g] && failName == "")
+         failName = g_gateNames[g];
+     }
+   ObjectSetString(0, DASH_PREFIX + "GateFailName", OBJPROP_TEXT, failName);
+   ObjectSetInteger(0, DASH_PREFIX + "GateFailName", OBJPROP_COLOR, clrRed);
+
+   // Row: Session
+   MqlDateTime dt;
+   TimeToStruct(TimeCurrent(), dt);
+   SetRow("Session", StringFormat("Sess: %s / %s  now %02d:%02d:%02d",
+                                  Session1, Session2, dt.hour, dt.min, dt.sec), clrGainsboro);
+
+   // Row: Spread / ATR
+   long   spreadPts = SymbolInfoInteger(_Symbol, SYMBOL_SPREAD);
+   double atr       = GetATRUSD();
+   SetRow("SpreadATR", StringFormat("Spr %d/%d pts  ATR %s [%.2f-%.2f]",
+                                    (int)spreadPts, MaxSpreadPoints,
+                                    atr < 0.0 ? "n/a" : DoubleToString(atr, 2),
+                                    ATR_Min_USD, ATR_Max_USD),
+          spreadPts > MaxSpreadPoints ? clrRed : clrGainsboro);
+
+   // Row: Grid
+   string gridTxt = "Grid: —";
+   if(g_state == STATE_ARMED)
+      gridTxt = StringFormat("Grid: %d+%d pending", GridLevels, GridLevels);
+   else if(g_state == STATE_ACTIVE)
+      gridTxt = StringFormat("Grid: %s fills %d/%d",
+                             g_lockedDir > 0 ? "BUY" : "SELL", g_fillCount,
+                             OCO_Mode ? GridLevels : GridLevels * 2);
+   SetRow("Grid", gridTxt, clrGainsboro);
+
+   // Row: Basket P/L
+   if(g_state == STATE_ACTIVE && volume > 0.0)
+      SetRow("BasketPL", StringFormat("P/L: %.2f USD (%.2f lots)", pl, volume),
+             pl >= 0.0 ? clrLimeGreen : clrCrimson);
+   else
+      SetRow("BasketPL", "P/L: —", clrGainsboro);
+
+   // Row: Targets (scaled TP/SL + trail floor, per CLAUDE.md §7)
+   if(g_state == STATE_ACTIVE && volume > 0.0)
+     {
+      double scale = volume / 0.01;
+      SetRow("Targets", StringFormat("TP %.2f  SL -%.2f  Floor %s",
+                                     BasketTP_USD * scale, BasketSL_USD * scale,
+                                     g_trailActive ? DoubleToString(g_trailFloor, 2) : "—"),
+             clrGainsboro);
+     }
+   else
+      SetRow("Targets", "Targets: —", clrGainsboro);
+
+   // Row: Whipsaw — today's counter, plus a cooldown countdown while COOLDOWN
+   long   todayStamp   = (long)(TimeCurrent() / 86400);
+   int    whipsawCount = ((long)GVGet(GV_WHIPSAW_DAY, -1.0) == todayStamp) ? (int)GVGet(GV_WHIPSAW_COUNT, 0.0) : 0;
+   string whipsawTxt   = StringFormat("Whipsaw %d/%d", whipsawCount, MaxWhipsawsPerDay);
+   if(g_state == STATE_COOLDOWN)
+     {
+      long remain = (long)GVGet(GV_COOLDOWN_UNTIL, 0.0) - (long)TimeCurrent();
+      if(remain > 0)
+         whipsawTxt += "  cd " + SecondsToHHMMSS(remain);
+     }
+   SetRow("Whipsaw", whipsawTxt, clrGainsboro);
+
+   // Row: Expiry — grid TTL countdown while ARMED
+   if(g_state == STATE_ARMED && g_armedAt > 0)
+     {
+      long remain = (long)GridTTLMin * 60 - ((long)TimeCurrent() - (long)g_armedAt);
+      SetRow("Expiry", "TTL: " + (remain > 0 ? SecondsToHHMMSS(remain) : "expiring..."), clrGainsboro);
+     }
+   else
+      SetRow("Expiry", "TTL: —", clrGainsboro);
+  }
+
+//--- Remove every dashboard object — EA removal must leave no leftover
+//    chart objects (CLAUDE.md §10.1 / docs/CHECKLIST.md Phase 8).
+void RemoveDashboard()
+  {
+   ObjectsDeleteAll(0, DASH_PREFIX);
+   g_dashBuilt = false;
   }
 
 void OnChartEvent(const int id, const long &lparam, const double &dparam, const string &sparam)
   {
-   // Phase 8: header click collapse/expand, rebuild on timeframe switch
+   if(id == CHARTEVENT_OBJECT_CLICK &&
+      (sparam == DASH_PREFIX + "Header" || sparam == DASH_PREFIX + "HeaderText"))
+     {
+      g_dashCollapsed = !g_dashCollapsed;
+      BuildDashboard();
+      UpdateDashboard();
+      ObjectSetInteger(0, sparam, OBJPROP_SELECTED, false);   // click shouldn't leave it "selected"
+      ChartRedraw(0);
+      return;
+     }
+   if(id == CHARTEVENT_CHART_CHANGE)
+     {
+      // Safety rebuild on timeframe switch (CLAUDE.md §10.1: "Collapse state
+      // persists across timeframe switches (chart object based, rebuilt in
+      // OnChartEvent)"). g_dashCollapsed itself is a plain global — the EA
+      // instance isn't reloaded on a TF switch, so it's already preserved;
+      // this just re-asserts object geometry/visibility defensively.
+      BuildDashboard();
+      UpdateDashboard();
+     }
   }
 
 //+------------------------------------------------------------------+
