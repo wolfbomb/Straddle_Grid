@@ -13,6 +13,10 @@
 #
 #  If MT5 lives in a Parallels/VMware Windows VM, use run_tests.bat
 #  inside the VM instead.
+#
+#  Optional args filter which configs run, matched as a substring against
+#  each .ini's filename, e.g.:  ./run_tests.sh hydra_05 hydra_06
+#  With no args, every config in configs/ runs (original behavior).
 # ============================================================
 set -u
 
@@ -20,8 +24,20 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$HERE/../.." && pwd)"
 COMMON_INI="$HERE/configs/common.local.ini"
 MERGED_DIR="$HERE/.merged"
+FILTERS=("$@")
 
 fail() { echo "[ERROR] $*" >&2; exit 1; }
+
+should_run() {   # $1 = basename of the .ini
+    [ ${#FILTERS[@]} -eq 0 ] && return 0
+    local f
+    for f in "${FILTERS[@]}"; do
+        case "$1" in
+            *"$f"*) return 0 ;;
+        esac
+    done
+    return 1
+}
 
 convert_set_utf16() {   # $1 = src.set  $2 = dest.set
     # MT5 expects .set preset files in UTF-16LE (with BOM); a plain
@@ -122,8 +138,9 @@ if [ "$PLATFORM" = windows ]; then
     read -r -p "Press Enter to start..."
 
     for INI in "$HERE/configs/"*.ini; do
-        [ "$(basename "$INI")" = "common.local.ini" ] && continue
         NAME="$(basename "$INI")"
+        [ "$NAME" = "common.local.ini" ] && continue
+        should_run "$NAME" || continue
         MERGED="$(merge_config "$INI")"
         WIN_INI="$(cygpath -w "$MERGED")"
         echo "------------------------------------------------------------"
@@ -188,8 +205,9 @@ echo "First run per date range downloads tick data — be patient."
 read -r -p "Press Enter to start..."
 
 for INI in "$HERE/configs/"*.ini; do
-    [ "$(basename "$INI")" = "common.local.ini" ] && continue
     NAME="$(basename "$INI")"
+    [ "$NAME" = "common.local.ini" ] && continue
+    should_run "$NAME" || continue
     WIN_CFG="C:\\Program Files\\MetaTrader 5\\hydra_configs\\$NAME"
     echo "------------------------------------------------------------"
     echo "Running $NAME ..."

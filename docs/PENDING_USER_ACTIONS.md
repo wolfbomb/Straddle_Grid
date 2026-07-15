@@ -51,14 +51,34 @@ Version bumped to **v2.0** and committed as `Phase 6 complete`.
 
 ## Next: Phase 7 — full validation campaign
 
-- 3-month real-tick backtest on XAUUSD-VIP M1, "every tick based on real ticks", including
-  at least one NFP day and one FOMC day (per CLAUDE.md §11).
-- Spread-stress rerun (this demo's typical spread ran 36–38 pts in earlier sessions — above
-  the default `MaxSpreadPoints=35`; consider whether to test with 35 as-is to prove gate 3
-  correctly throttles, and separately with a raised cap to see full trading behavior).
-- Explicit test cases from CLAUDE.md §11 still to confirm on a longer window: whipsaw candle
-  piercing both sides in one bar, terminal restart during ACTIVE with no duplicate grid,
-  stops-level rejection at deploy with clean abort.
+Two new tester configs are ready in `tools/strategy-tester/` (git pull to get them):
+
+- [ ] **Run 05 — Phase 7 campaign:** `./run_tests.sh hydra_05` (filter arg runs only this
+      one, skips re-running the already-passed 01–04). Full production defaults, no gates
+      weakened, `2026.04.01`–`2026.07.10` (~3 months). This range should contain multiple
+      NFP days (first Friday of each month) and, since FOMC meets roughly every 6 weeks, at
+      least one FOMC day — no guarantee though, so eyeball the equity curve for a couple of
+      obvious high-volatility spikes and cross-check the dates against your broker's
+      economic calendar if you want certainty. Expect: no journal errors, zero partial
+      grids, and gates/deploy/fills/whipsaw/basket all interacting correctly over the long
+      window. This run will take noticeably longer than 01–04 and the first pass downloads
+      3+ months of tick data — be patient.
+- [ ] **Run 06 — spread stress:** `./run_tests.sh hydra_06`. Same production defaults but
+      with a fixed `Spread=40` tester override (above the `MaxSpreadPoints=35` cap) for the
+      whole `2026.06.01`–`2026.07.10` window. Expect **zero orders placed at all** — only
+      clean `gates FAIL - gate 3 (Spread): 40 > max 35` lines, no "invalid stops" broker
+      errors. If you see even one order, that's a real bug (gate 3 not blocking correctly).
+
+Still outstanding after those two runs, per CLAUDE.md §11 (harder to automate, need a plan
+before doing them):
+- [ ] Terminal restart during `ACTIVE` with no duplicate grid — needs a live/demo chart
+      restart, not a backtest; can piggyback on the optional restart-mid-trailing test from
+      Phase 6.
+- [ ] Stops-level rejection at deploy → clean abort — gate 3's own spacing check
+      (`GridSpacingUSD ≥ stops + spread + buffer`) already prevents this under current
+      defaults (0.70 spacing clears the 35-pt spread cap with room to spare), so it isn't
+      naturally exercised by 01–06. Would need a deliberately-too-tight `GridSpacingUSD`
+      preset to force it — ask if you want that added as a run 07.
 
 ## Upcoming (for awareness)
 

@@ -6,7 +6,11 @@ REM
 REM  Auto-detects the repo-as-data-folder layout (terminal64.exe and
 REM  MQL5\ in the repo root, e.g. D:\Straddle_Grid). If your setup
 REM  differs, edit TERMINAL / DATADIR in the OVERRIDES block below.
+REM
+REM  Optional: pass a substring as %1 to run only matching configs, e.g.
+REM  run_tests.bat hydra_05   (leave blank to run every config, as before)
 REM ============================================================
+set "RUNFILTER=%~1"
 
 REM ---- OVERRIDES (leave empty for auto-detection) -------------
 set "TERMINAL="
@@ -85,7 +89,12 @@ echo.
 pause
 
 for %%C in ("%~dp0configs\*.ini") do (
-    if /I not "%%~nxC"=="common.local.ini" (
+    set "SKIP="
+    if /I "%%~nxC"=="common.local.ini" set "SKIP=1"
+    if defined RUNFILTER (
+        echo %%~nxC | findstr /I /C:"%RUNFILTER%" >nul || set "SKIP=1"
+    )
+    if not defined SKIP (
         echo ------------------------------------------------------------
         echo Running %%~nxC ...
         "%TERMINAL%" %PORTABLE% /config:"%~dp0.merged\%%~nxC"

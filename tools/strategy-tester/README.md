@@ -14,13 +14,17 @@ tools/strategy-tester/
 │   ├── hydra_01_defaults_smoke.set
 │   ├── hydra_02_deploy_fills.set
 │   ├── hydra_03_ttl_expiry.set
-│   └── hydra_04_whipsaw_guard.set
+│   ├── hydra_04_whipsaw_guard.set
+│   ├── hydra_05_phase7_campaign.set
+│   └── hydra_06_spread_stress.set
 └── configs/             ← tester launch configs (one per scenario)
     ├── common.local.ini.example  ← template for your login (copy → common.local.ini)
     ├── hydra_01_defaults_smoke.ini
     ├── hydra_02_deploy_fills.ini
     ├── hydra_03_ttl_expiry.ini
-    └── hydra_04_whipsaw_guard.ini
+    ├── hydra_04_whipsaw_guard.ini
+    ├── hydra_05_phase7_campaign.ini
+    └── hydra_06_spread_stress.ini
 ```
 
 ## Which runner?
@@ -68,9 +72,16 @@ tools/strategy-tester/
 
 ## Running
 
-Run `./run_tests.sh` from Git Bash (or double-click `run_tests.bat`). It copies the
-presets into `MQL5\Presets` (converting to the UTF-16 encoding MT5 requires), then runs
-the four configs one after another (each terminal instance closes itself when done).
+Run `./run_tests.sh` from Git Bash (or double-click `run_tests.bat`). With no arguments it
+copies the presets into `MQL5\Presets` (converting to the UTF-16 encoding MT5 requires),
+then runs every config one after another (each terminal instance closes itself when done).
+
+**Running a subset:** pass one or more substrings to filter which configs run, e.g.
+`./run_tests.sh hydra_05` runs only the Phase 7 campaign, or
+`./run_tests.sh hydra_05 hydra_06` runs both new Phase 7 scenarios without re-running the
+already-passed 01–04 suite. `run_tests.bat` accepts one filter argument the same way
+(`run_tests.bat hydra_05`). Useful since 05/06 cover months of data and take much longer
+than the short 01–04 scenarios.
 
 **Results to send back:**
 - The HTML reports `Hydra_0*.htm` in the data folder root.
@@ -78,7 +89,7 @@ the four configs one after another (each terminal instance closes itself when do
   the `[HYDRA]` lines land. For the whipsaw run, the lines to look for are
   `WHIPSAW DETECTED`, the close/delete storm, and `state ACTIVE -> COOLDOWN`.
 
-## The four scenarios
+## The scenarios
 
 | Run | Preset highlights | Date range (edit in the .ini if needed) | Pass looks like |
 |---|---|---|---|
@@ -86,13 +97,15 @@ the four configs one after another (each terminal instance closes itself when do
 | **02 deploy & fills** | Defaults + auto-trading ON | a trending session week | `grid deployed: 9+9`, direction lock on first fill, OCO cancel, sequential `fill n/9` |
 | **03 TTL expiry** | Auto ON, `GridTTLMin=2`, wide first-level offset so nothing fills, ATR floor lowered so it deploys in quiet | any recent quiet week | Deploy → 2 min → `grid TTL 2 min expired with zero fills` → all 18 deleted → re-deploy |
 | **04 whipsaw guard** | Auto ON, `OCO_Mode=false`, ATR ceiling + spread cap raised so the gates don't block the news candle | **a violent news day** — default is set to an NFP-style first-Friday; adjust to any big-range day you can see on the chart | `WHIPSAW DETECTED … gap N s` → all positions closed, all pendings deleted → `COOLDOWN (1/2 today)` |
+| **05 Phase 7 campaign** | Full production defaults, nothing weakened | ~3 months (`2026.04.01`–`2026.07.10` by default), chosen to include multiple NFP days and at least one FOMC day | Runs clean end to end: no journal errors, zero partial grids, gates/deploy/fills/whipsaw/basket all interacting correctly over the long window |
+| **06 spread stress** | Full production defaults + `Spread=40` fixed override (MT5 tester `[Tester]` key, above the `MaxSpreadPoints=35` cap) | ~6 weeks (`2026.06.01`–`2026.07.10` by default) | **Zero orders the entire run** — only clean `gates FAIL - gate 3 (Spread): 40 > max 35` lines, no "invalid stops" errors |
 
 ⚠ Run 04's preset **deliberately weakens gates 2–3** (ATR/spread caps) so the test can
 reach the whipsaw — those values are for this test only, never for live/demo charts.
 
-⚠ Runs 02–04 have no basket exits yet (Phase 6 pending): positions ride to the end of
-the range or until the guard/TTL acts. Expected at this stage — judge the mechanics,
-not the P/L.
+⚠ Runs 02–04 (and 05/06 pre-Phase-6) had no basket exits: as of Phase 6 (v2.0), basket
+TP/SL/trailing exits are live and should appear in every run where a basket goes into
+profit/loss/trail — see `docs/PENDING_USER_ACTIONS.md` for what "correct" looks like.
 
 ## Adjusting dates
 
