@@ -1,10 +1,17 @@
 ; Hydra scenario 06 — Phase 7 spread-stress test
-; Same production defaults as run 05. The .ini forces a fixed elevated
-; spread (Spread=40 pts, above the MaxSpreadPoints=35 cap) for the whole
-; run via MT5's tester [Tester] Spread= override. Expect gate 3 to block
-; every single deployment attempt cleanly for the entire window — zero
-; orders, zero "invalid stops" journal errors, only
-; "gates FAIL - gate 3 (Spread): 40 > max 35" lines.
+; Same production defaults as run 05, except MaxSpreadPoints is dropped to
+; 1 pt — well below any real market spread on XAUUSD-VIP — so gate 3's
+; direct spread-cap check blocks every deployment attempt for the entire
+; window regardless of actual historical spread. (An earlier version of
+; this test tried to force a fixed elevated spread via the tester's own
+; [Tester] Spread= override; that override was silently ignored by this
+; MT5 build — the run traded normally with zero gate-3 failures — so the
+; test now forces the block from the EA-input side instead, which is
+; reliable.) Expect zero orders for the entire run, only clean
+; "gates FAIL - gate 3 (Spread): N > max 1" lines, no "invalid stops"
+; journal errors. GridSpacingUSD stays untouched (0.70 clears
+; 20 stops + 1 spread + 10 buffer = 31 pts trivially), so this isolates
+; the direct spread-cap check from the spacing-vs-stops validation.
 AUTO_TRADING_ENABLED=true
 MagicNumber=20260713
 GridLevels=9
@@ -21,7 +28,7 @@ Session1=07:00-10:00
 Session2=12:00-15:00
 ATR_Min_USD=1.5
 ATR_Max_USD=8.0
-MaxSpreadPoints=35
+MaxSpreadPoints=1
 MinMarginLevelPct=500.0
 MaxDailyLossPct=3.0
 WhipsawWindowSec=300

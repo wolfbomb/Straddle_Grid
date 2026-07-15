@@ -101,7 +101,7 @@ than the short 01–04 scenarios.
 | **03 TTL expiry** | Auto ON, `GridTTLMin=2`, wide first-level offset so nothing fills, ATR floor lowered so it deploys in quiet | any recent quiet week | Deploy → 2 min → `grid TTL 2 min expired with zero fills` → all 18 deleted → re-deploy |
 | **04 whipsaw guard** | Auto ON, `OCO_Mode=false`, ATR ceiling + spread cap raised so the gates don't block the news candle | **a violent news day** — default is set to an NFP-style first-Friday; adjust to any big-range day you can see on the chart | `WHIPSAW DETECTED … gap N s` → all positions closed, all pendings deleted → `COOLDOWN (1/2 today)` |
 | **05 Phase 7 campaign** | Full production defaults, nothing weakened | ~3 months (`2026.04.01`–`2026.07.10` by default), chosen to include multiple NFP days and at least one FOMC day | Runs clean end to end: no journal errors, zero partial grids, gates/deploy/fills/whipsaw/basket all interacting correctly over the long window |
-| **06 spread stress** | Full production defaults + `Spread=40` fixed override (MT5 tester `[Tester]` key, above the `MaxSpreadPoints=35` cap) | ~6 weeks (`2026.06.01`–`2026.07.10` by default) | **Zero orders the entire run** — only clean `gates FAIL - gate 3 (Spread): 40 > max 35` lines, no "invalid stops" errors |
+| **06 spread stress** | Full production defaults + `MaxSpreadPoints=1` (below any real spread, so gate 3 blocks on real historical spread every time — not a tester-engine spread override, see note below) | ~6 weeks (`2026.06.01`–`2026.07.10` by default) | **Zero orders the entire run** — only clean `gates FAIL - gate 3 (Spread): N > max 1` lines, no "invalid stops" errors |
 
 ⚠ Run 04's preset **deliberately weakens gates 2–3** (ATR/spread caps) so the test can
 reach the whipsaw — those values are for this test only, never for live/demo charts.
@@ -109,6 +109,12 @@ reach the whipsaw — those values are for this test only, never for live/demo c
 ⚠ Runs 02–04 (and 05/06 pre-Phase-6) had no basket exits: as of Phase 6 (v2.0), basket
 TP/SL/trailing exits are live and should appear in every run where a basket goes into
 profit/loss/trail — see `docs/PENDING_USER_ACTIONS.md` for what "correct" looks like.
+
+⚠ Run 06 originally tried MT5's tester-level `[Tester] Spread=` override to force a fixed
+elevated spread. That override was silently ignored on this build (2026-07-15: the run
+traded normally with real historical spread and zero gate-3 failures) — it now forces the
+block from the EA-input side (`MaxSpreadPoints=1`) instead, which is reliable regardless of
+tester-engine spread-override support.
 
 ## Adjusting dates
 
