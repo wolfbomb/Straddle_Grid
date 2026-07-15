@@ -50,9 +50,12 @@ tools/strategy-tester/
 1. **Compile the EA first** in MetaEditor (the tester runs the compiled `.ex5`).
 2. If auto-detection can't find your install: find your **data folder** in MT5 →
    `File → Open Data Folder` (standard installs look like
-   `C:\Users\<you>\AppData\Roaming\MetaQuotes\Terminal\<long-hex-id>`), then either
-   export `DATADIR`/`TERMINAL` before `./run_tests.sh` or edit the OVERRIDES block
-   at the top of `run_tests.bat`.
+   `C:\Users\<you>\AppData\Roaming\MetaQuotes\Terminal\<long-hex-id>`) — this is *not*
+   necessarily the git repo folder (the repo only holds source; the compiled `.ex5` and
+   real tick history live in MT5's own data folder). Set it once and forget it: copy
+   `.env.local.example` to `.env.local` in this folder and fill in `DATADIR` (and
+   `TERMINAL` if needed). `.env.local` is gitignored. A `DATADIR`/`TERMINAL` env var
+   passed on the command line still overrides it for a one-off run.
 3. **Create your login file (required):** copy `configs/common.local.ini.example` to
    `configs/common.local.ini` and fill in your **DEMO account's** `Login` / `Password` /
    `Server`. This file is in `.gitignore` and never gets committed — do not paste its

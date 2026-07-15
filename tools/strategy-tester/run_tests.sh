@@ -26,6 +26,14 @@ COMMON_INI="$HERE/configs/common.local.ini"
 MERGED_DIR="$HERE/.merged"
 FILTERS=("$@")
 
+# Optional persistent local overrides (gitignored — machine-specific paths,
+# not secrets). Sourced before auto-detection so DATADIR/TERMINAL set here
+# become the defaults; actual environment variables at invocation still win
+# since the auto-detect blocks below only fill in what's still unset.
+ENV_LOCAL="$HERE/.env.local"
+# shellcheck disable=SC1090
+[ -f "$ENV_LOCAL" ] && . "$ENV_LOCAL"
+
 fail() { echo "[ERROR] $*" >&2; exit 1; }
 
 should_run() {   # $1 = basename of the .ini

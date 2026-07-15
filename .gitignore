@@ -25,3 +25,6 @@ wine_noise.log
 # Tester account credentials (never commit) + generated merged configs
 tools/strategy-tester/configs/common.local.ini
 tools/strategy-tester/.merged/
+
+# Per-machine tester runner paths (not secrets, just local-only)
+tools/strategy-tester/.env.local
