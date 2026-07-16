@@ -26,6 +26,10 @@ COMMON_INI="$HERE/configs/common.local.ini"
 MERGED_DIR="$HERE/.merged"
 FILTERS=("$@")
 
+# Marker file so report_dash_fail_summary() can find only *this* run's log
+# output (Tester logs otherwise accumulate across every past run).
+RUN_MARKER="$(mktemp)"
+
 # Optional persistent local overrides (gitignored — machine-specific paths,
 # not secrets). Sourced before auto-detection so DATADIR/TERMINAL set here
 # become the defaults; actual environment variables at invocation still win
@@ -85,6 +89,27 @@ merge_config() {   # $1 = original ini path  ->  echoes merged path
     mkdir -p "$MERGED_DIR"
     { cat "$COMMON_INI"; echo; cat "$1"; } > "$MERGED"
     echo "$MERGED"
+}
+
+report_dash_fail_summary() {   # $1 = tester root dir (DATADIR or DATA_DIR)
+    local root="$1" hits=0 total=0 report=""
+    while IFS= read -r -d '' logfile; do
+        hits="$(grep -c 'DASH-FAIL' "$logfile" 2>/dev/null || true)"
+        hits="${hits:-0}"
+        if [ "$hits" -gt 0 ]; then
+            total=$((total + hits))
+            report="${report}  $logfile: $hits hit(s)
+"
+        fi
+    done < <(find "$root/Tester" -name '*.log' -newer "$RUN_MARKER" -print0 2>/dev/null)
+    echo "------------------------------------------------------------"
+    if [ "$total" -eq 0 ]; then
+        echo "Dashboard self-test: PASS (0 [DASH-FAIL] lines across this run)"
+    else
+        echo "Dashboard self-test: FAIL ($total [DASH-FAIL] line(s)):"
+        printf '%s' "$report"
+    fi
+    rm -f "$RUN_MARKER"
 }
 
 case "$(uname -s)" in
@@ -163,7 +188,7 @@ if [ "$PLATFORM" = windows ]; then
     echo "All runs done."
     echo "  Reports:      $DATADIR/Hydra_0*.htm"
     echo "  Tester logs:  $DATADIR/Tester/*/logs/   (the [HYDRA] lines live here)"
-    echo "Send both back for verification."
+    report_dash_fail_summary "$DATADIR"
     exit 0
 fi
 
@@ -236,4 +261,4 @@ echo "------------------------------------------------------------"
 echo "All runs done."
 echo "  Reports:      $DATA_DIR/Hydra_0*.htm"
 echo "  Tester logs:  $DATA_DIR/Tester/*/logs/   (the [HYDRA] lines live here)"
-echo "Send both back for verification."
+report_dash_fail_summary "$DATA_DIR"
