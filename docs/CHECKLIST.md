@@ -107,18 +107,17 @@
 
 ## Phase 8 — Dashboard Panel
 
-- [ ] Header reads `SIGMA Hydra <HYDRA_VERSION>` (sourced from the constant, matches the compiled build), top-left, expanded by default.
-- [ ] Click header → collapses to title bar + ▲/▼; click again → expands.
-- [ ] Switch timeframe M1→M5→M1 → panel rebuilt, collapse state preserved.
-- [ ] Accent colors: gray IDLE, blue ARMED, green ACTIVE in profit, red ACTIVE in drawdown, orange COOLDOWN (force each state and eyeball).
-- [ ] Auto Trading row shows red warning when `AUTO_TRADING_ENABLED=false` or terminal button off.
-- [ ] Gate dots reflect live gate cache; failing gate shows its name.
-- [ ] Grid row: `9+9 pending` when ARMED; direction + `fills n/9` when ACTIVE.
-- [ ] Targets row shows `—` for trail floor until trailing activates, then live floor.
-- [ ] Whipsaw row: counter `n/2`; countdown while in whipsaw cooldown. Expiry row: TTL countdown while ARMED.
-- [ ] No buttons or clickable trade controls anywhere on the panel.
-- [ ] Panel objects fully removed on EA removal (`OnDeinit`); no leftover chart objects.
-- [ ] Panel does not overlap the chart data window; redraws throttled (no per-tick full rebuild).
+**Automated (checked by `run_tests.sh`'s DASH-FAIL summary on every run — see
+`docs/superpowers/specs/2026-07-16-dashboard-selftest-design.md`):** header version text, all
+5 accent colors, gate dot colors + failing-gate name, every row's live content (session,
+spread/ATR, grid status, basket P/L, scaled TP/SL/trail-floor targets, whipsaw counter +
+cooldown countdown, TTL countdown), and leftover-object cleanup on EA removal.
+
+**Still manual (requires a screen — run `./run_tests.sh hydra_dash_visual` and watch):**
+- [ ] A real header click actually collapses the panel to the title bar; clicking again
+      actually expands it.
+- [ ] The panel doesn't visually overlap the chart's native top-left OHLC/price label.
+- [ ] General "does it look right" pass — fonts, spacing, readability, colors as expected.
 
 ---
 

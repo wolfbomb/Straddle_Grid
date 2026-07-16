@@ -91,21 +91,24 @@ take a screenshot. Close the window when you're done watching — the script wil
 the panel renders, updates the session/spread/ATR/gate rows in real time, and the click
 collapse/expand works.
 
-### 3. What to check off (`docs/CHECKLIST.md` §Phase 8)
+### 3. What to check off
 
-- [ ] Header reads `SIGMA Hydra v2.0`, top-left, expanded by default.
-- [ ] Click the header → collapses to just the title bar + ▲/▼ indicator; click again → expands.
-- [ ] Switch timeframe (e.g. M1→M5→M1) → panel still there, collapse state preserved.
-- [ ] Accent colors correct for each state you can trigger (gray/blue/green/red/orange).
-- [ ] Auto Trading row shows red when `AUTO_TRADING_ENABLED=false`.
-- [ ] Gate dots: green when passing, red + gate name when failing, gray if never evaluated yet.
-- [ ] Grid row shows `9+9 pending` while ARMED, `BUY/SELL fills n/9` while ACTIVE.
-- [ ] Targets row shows `—` for the floor until trailing activates, then the live number.
-- [ ] Whipsaw row shows `n/2` and a countdown while in COOLDOWN.
-- [ ] Expiry row shows a TTL countdown while ARMED, `—` otherwise.
-- [ ] Remove the EA from the chart → no leftover chart objects (check the Object List, Ctrl+B).
-- [ ] Panel doesn't overlap the chart's native top-left price/OHLC label — nudge `DASH_Y` in
-      the source if it does on your setup.
+Most of the old 12-item checklist is now automatic — every `run_tests.sh` run ends with a
+`Dashboard self-test: PASS/FAIL` line covering header text, all 5 accent colors, gate dots,
+every row's content, and leftover-object cleanup. Run the headless state-cycling config and
+confirm it reports PASS:
+
+```bash
+cd tools/strategy-tester
+./run_tests.sh hydra_02_deploy_fills
+```
+
+Only 3 items still need a screen (see `docs/CHECKLIST.md` §Phase 8) — use the existing Visual
+mode command for these:
+
+- [ ] Header click actually collapses/expands the panel.
+- [ ] Panel doesn't overlap the chart's native OHLC/price label.
+- [ ] General "does it look right" pass.
 
 Report back what you see (screenshots help a lot here, this is a visual feature) — once it
 passes, I'll bump to v2.1 and commit `Phase 8 complete`.
