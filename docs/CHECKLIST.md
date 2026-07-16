@@ -116,6 +116,9 @@ cooldown countdown, TTL countdown), and leftover-object cleanup on EA removal.
 **Still manual (requires a screen — run `./run_tests.sh hydra_dash_visual` and watch):**
 - [ ] A real header click actually collapses the panel to the title bar; clicking again
       actually expands it.
+- [ ] Switch timeframe (e.g. M1→M5→M1) → panel still there, collapse state preserved. The
+      read-back guard verifies object *content*, not that a real `CHARTEVENT_CHART_CHANGE`
+      correctly rebuilds/preserves the panel — that still needs a screen.
 - [ ] The panel doesn't visually overlap the chart's native top-left OHLC/price label.
 - [ ] General "does it look right" pass — fonts, spacing, readability, colors as expected.
 

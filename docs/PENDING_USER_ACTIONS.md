@@ -103,10 +103,11 @@ cd tools/strategy-tester
 ./run_tests.sh hydra_02_deploy_fills
 ```
 
-Only 3 items still need a screen (see `docs/CHECKLIST.md` §Phase 8) — use the existing Visual
+Only 4 items still need a screen (see `docs/CHECKLIST.md` §Phase 8) — use the existing Visual
 mode command for these:
 
 - [ ] Header click actually collapses/expands the panel.
+- [ ] Switch timeframe (M1→M5→M1) → panel still there, collapse state preserved.
 - [ ] Panel doesn't overlap the chart's native OHLC/price label.
 - [ ] General "does it look right" pass.
 
