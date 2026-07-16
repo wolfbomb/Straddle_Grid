@@ -1163,6 +1163,28 @@ void BuildDashboard()
    ChartRedraw(0);
   }
 
+//--- Passive read-back guard: confirms a just-written object property
+//    actually holds the value we intended. Silent on match; on mismatch,
+//    logs a grep-able [DASH-FAIL] line via the existing HydraLog(). Never
+//    fires on correct code, live or in tester — this is a regression
+//    guard, not a synthetic/injected test, so it needs no gating.
+void VerifyTextProp(const string rowKey, const string name, const string expected)
+  {
+   string actual = ObjectGetString(0, name, OBJPROP_TEXT);
+   if(actual != expected)
+      HydraLog(StringFormat("[DASH-FAIL] row=%s field=text expected=\"%s\" actual=\"%s\"",
+                             rowKey, expected, actual));
+  }
+
+void VerifyColorProp(const string rowKey, const string name,
+                      const ENUM_OBJECT_PROPERTY_INTEGER prop, const color expected)
+  {
+   color actual = (color)ObjectGetInteger(0, name, prop);
+   if(actual != expected)
+      HydraLog(StringFormat("[DASH-FAIL] row=%s field=%s expected=%d actual=%d",
+                             rowKey, EnumToString(prop), (int)expected, (int)actual));
+  }
+
 //--- Update one body row's text + color (Gates row is handled separately
 //    in UpdateDashboard() since it's five independently-colored dots)
 void SetRow(const string rowKey, const string text, const color clr)
@@ -1170,6 +1192,8 @@ void SetRow(const string rowKey, const string text, const color clr)
    string name = DASH_PREFIX + "Row_" + rowKey;
    ObjectSetString(0, name, OBJPROP_TEXT, text);
    ObjectSetInteger(0, name, OBJPROP_COLOR, clr);
+   VerifyTextProp(rowKey, name, text);
+   VerifyColorProp(rowKey, name, OBJPROP_COLOR, clr);
   }
 
 string SecondsToHHMMSS(const long totalSeconds)
@@ -1193,8 +1217,11 @@ void UpdateDashboard()
    color accent = DashAccentColor();
    ObjectSetInteger(0, DASH_PREFIX + "Header", OBJPROP_BGCOLOR, accent);
    ObjectSetInteger(0, DASH_PREFIX + "Header", OBJPROP_COLOR, accent);
-   ObjectSetString(0, DASH_PREFIX + "HeaderText", OBJPROP_TEXT,
-                   StringFormat("SIGMA Hydra %s  %s", HYDRA_VERSION, g_dashCollapsed ? "▲" : "▼"));
+   VerifyColorProp("Header", DASH_PREFIX + "Header", OBJPROP_BGCOLOR, accent);
+   VerifyColorProp("Header", DASH_PREFIX + "Header", OBJPROP_COLOR, accent);
+   string headerTxt = StringFormat("SIGMA Hydra %s  %s", HYDRA_VERSION, g_dashCollapsed ? "▲" : "▼");
+   ObjectSetString(0, DASH_PREFIX + "HeaderText", OBJPROP_TEXT, headerTxt);
+   VerifyTextProp("HeaderText", DASH_PREFIX + "HeaderText", headerTxt);
 
    if(g_dashCollapsed)
       return;   // body rows are hidden — nothing else to update
@@ -1219,13 +1246,16 @@ void UpdateDashboard()
       color dot = clrGray;   // not yet evaluated this session
       if(g_gateEvaluated[g])
          dot = g_gatePass[g] ? clrLimeGreen : clrRed;
-      ObjectSetString(0, DASH_PREFIX + "Gate" + IntegerToString(g), OBJPROP_TEXT, "●");
-      ObjectSetInteger(0, DASH_PREFIX + "Gate" + IntegerToString(g), OBJPROP_COLOR, dot);
+      string gateName = DASH_PREFIX + "Gate" + IntegerToString(g);
+      ObjectSetString(0, gateName, OBJPROP_TEXT, "●");
+      ObjectSetInteger(0, gateName, OBJPROP_COLOR, dot);
+      VerifyColorProp(StringFormat("Gate%d", g), gateName, OBJPROP_COLOR, dot);
       if(g_gateEvaluated[g] && !g_gatePass[g] && failName == "")
          failName = g_gateNames[g];
      }
    ObjectSetString(0, DASH_PREFIX + "GateFailName", OBJPROP_TEXT, failName);
    ObjectSetInteger(0, DASH_PREFIX + "GateFailName", OBJPROP_COLOR, clrRed);
+   VerifyTextProp("GateFailName", DASH_PREFIX + "GateFailName", failName);
 
    // Row: Session
    MqlDateTime dt;
@@ -1298,6 +1328,17 @@ void UpdateDashboard()
 void RemoveDashboard()
   {
    ObjectsDeleteAll(0, DASH_PREFIX);
+   int leftover = 0;
+   int total = ObjectsTotal(0, -1, -1);
+   for(int i = 0; i < total; i++)
+     {
+      string name = ObjectName(0, i, -1, -1);
+      if(StringFind(name, DASH_PREFIX) == 0)
+         leftover++;
+     }
+   if(leftover > 0)
+      HydraLog(StringFormat("[DASH-FAIL] row=cleanup field=leftover_objects expected=0 actual=%d",
+                             leftover));
    g_dashBuilt = false;
   }
 
