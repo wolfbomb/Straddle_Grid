@@ -29,6 +29,7 @@ FILTERS=("$@")
 # Marker file so report_dash_fail_summary() can find only *this* run's log
 # output (Tester logs otherwise accumulate across every past run).
 RUN_MARKER="$(mktemp)"
+trap 'rm -f "$RUN_MARKER"' EXIT
 
 # Optional persistent local overrides (gitignored — machine-specific paths,
 # not secrets). Sourced before auto-detection so DATADIR/TERMINAL set here
@@ -92,8 +93,9 @@ merge_config() {   # $1 = original ini path  ->  echoes merged path
 }
 
 report_dash_fail_summary() {   # $1 = tester root dir (DATADIR or DATA_DIR)
-    local root="$1" hits=0 total=0 report=""
+    local root="$1" hits=0 total=0 scanned=0 report=""
     while IFS= read -r -d '' logfile; do
+        scanned=$((scanned + 1))
         hits="$(grep -c 'DASH-FAIL' "$logfile" 2>/dev/null || true)"
         hits="${hits:-0}"
         if [ "$hits" -gt 0 ]; then
@@ -103,13 +105,14 @@ report_dash_fail_summary() {   # $1 = tester root dir (DATADIR or DATA_DIR)
         fi
     done < <(find "$root/Tester" -name '*.log' -newer "$RUN_MARKER" -print0 2>/dev/null)
     echo "------------------------------------------------------------"
-    if [ "$total" -eq 0 ]; then
+    if [ "$scanned" -eq 0 ]; then
+        echo "Dashboard self-test: INCONCLUSIVE — no Tester logs found under $root/Tester newer than this run"
+    elif [ "$total" -eq 0 ]; then
         echo "Dashboard self-test: PASS (0 [DASH-FAIL] lines across this run)"
     else
         echo "Dashboard self-test: FAIL ($total [DASH-FAIL] line(s)):"
         printf '%s' "$report"
     fi
-    rm -f "$RUN_MARKER"
 }
 
 case "$(uname -s)" in

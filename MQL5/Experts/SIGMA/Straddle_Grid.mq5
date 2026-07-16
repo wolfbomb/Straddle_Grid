@@ -1168,6 +1168,10 @@ void BuildDashboard()
 //    logs a grep-able [DASH-FAIL] line via the existing HydraLog(). Never
 //    fires on correct code, live or in tester — this is a regression
 //    guard, not a synthetic/injected test, so it needs no gating.
+//    Literal/constant writes (e.g. the gate-dot glyph text "●" and
+//    GateFailName's clrRed color) are intentionally not read back — only
+//    computed/variable values are, since verifying a hardcoded literal
+//    write adds no value.
 void VerifyTextProp(const string rowKey, const string name, const string expected)
   {
    string actual = ObjectGetString(0, name, OBJPROP_TEXT);
