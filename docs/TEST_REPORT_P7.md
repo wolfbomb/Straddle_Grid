@@ -146,29 +146,60 @@ with a UTF-16-aware search: the read-back guard ran on every tick of all three r
 (hydra_02/04/07) with genuinely **0 `[DASH-FAIL]` lines**, and a positive-control pattern
 counted exactly (19,868) through the same decode path.
 
+## Run 09 — LIVE-DEMO restart-mid-ACTIVE + foreign-order isolation (2026-07-17)
+
+**Harness:** `tools/restart-test/restart_test.py` (+ `resume_test.py`), VTMarkets-Demo
+account 1093092 (verified demo by the harness before any order), real market hours
+(Friday ~12:25 GMT), EA attached to a live XAUUSD-VIP M1 chart via `[StartUp]` config
+with the test-only loosened-gates preset `hydra_09_restart_demo.set`. Total demo cost of
+the exercise: ≈ $5 across both attempts.
+
+Sequence and evidence (all server-side, independent of EA logs):
+
+| Step | Result |
+|---|---|
+| Foreign pending placed (magic 77777, BUY LIMIT $30 below market) | ticket 524323556 |
+| Grid deployed on live chart, 2 sequential fills (`SIGMA.Hydra.B0`/`B1`), OCO cancelled the sell side | observed in journal + window captures |
+| **Hard kill** (`taskkill /F`) mid-`ACTIVE` with 2 positions + 7 pendings | done |
+| Relaunch → EA re-attached | journal `expert Straddle_Grid (XAUUSD-VIP,M1) loaded successfully` |
+| Position tickets preserved | `[524319560, 524319568]` identical pre/post |
+| **No duplicate grid** | pendings 7 → 7, zero new tickets in the post-restart watch window |
+| **Foreign order untouched** | ticket/price/volume identical through deploy, fills, OCO, crash, restart |
+| Cleanup | all Hydra positions closed, all test orders (incl. foreign) deleted, account flat, no chart profile retains the EA (verified by content search) |
+
+**Verdict: PASS.** Both remaining §11 cases — restart during `ACTIVE` with full state
+recovery / no duplicate grid, and foreign-orders-untouched — are now closed on a real
+(demo) account, not just in the tester.
+
+**Platform quirks found while building this** (documented for future sessions): live
+expert logs (`MQL5\Logs`) flush unreliably on this build — a hard kill loses them and even
+graceful closes dropped a session; assert on the terminal journal (`logs\`) instead. The
+python `MetaTrader5` module race-launches its own terminal if `initialize()` is called
+before a config-launched instance finishes authorizing, which silently discards the
+`[StartUp]` EA attach — wait for the journal's `authorized on` line first.
+
 ## §11 explicit test cases — status
 
 | Case | Status |
 |---|---|
 | Whipsaw candle piercing both sides in one bar | **Proven on v2.0** (run 04 re-run 2026-07-17: 4 firings, correct gap math/cooldowns/daily counter, identical to the v1.9 baseline — see §Run 04 re-run above). |
-| Terminal restart during `ACTIVE`, no duplicate grid | **Deferred.** Needs a live/demo chart restart, not a backtest — not exercised in Phase 7. General restart-recovery mechanics were part of the Phase 1/4 build (state reconstruction from existing orders/positions in `OnInit`), but a Phase-7-specific mid-`ACTIVE` restart rerun on the current build was not performed. |
+| Terminal restart during `ACTIVE`, no duplicate grid | **Proven on a live demo chart** (run 09, 2026-07-17: hard-kill with 2 positions + 7 pendings, EA re-attached, tickets preserved, zero new orders — see §Run 09 above). |
 | Stops-level rejection at deploy → clean abort | **Proven** (run 07, 2026-07-17: forced via test-only `FirstLevelOffsetUSD=0.10` since gate 3 pre-validates spacing but not the first-level offset; 19,868 clean pre-send aborts, zero orders, zero broker errors — see §Run 07 above). |
 | Trailing floor hit during a retrace, all positions/pendings closed | **Proven** — 163 `trail floor hit` exits in run 05 alone, consistent with the exact-math validation already done in the Phase 6 basket-manager pass. |
 
 ## Outstanding before Phase 7 can be marked fully closed per `docs/CHECKLIST.md`
 
-- [ ] Restart mid-`ACTIVE` simulation (live/demo chart or tester re-init) with zero
-      orphaned orders after restart.
+- [x] Restart mid-`ACTIVE` with zero orphans/duplicates (done 2026-07-17, run 09 on a
+      live demo chart — see §Run 09).
 - [x] Whipsaw guard reconfirmed specifically on the v2.0 binary (done 2026-07-17, run 04
       re-run — identical to v1.9 baseline).
 - [x] Stops-level-rejection forced test (done 2026-07-17, run 07 — clean abort proven,
       zero orders).
-- [ ] Foreign-orders-untouched check — not independently exercised; backtests start from a
-      clean simulated account by construction, so this is more relevant to the live/demo
-      pre-deploy checklist than to Phase 7's tester runs.
+- [x] Foreign-orders-untouched check (done 2026-07-17, run 09 — foreign pending
+      byte-identical through the EA's whole live cycle including a crash-restart).
 - [x] Full P/L/profit-factor summary pulled from the `.htm` reports into this document
       (done 2026-07-17 — see Run 05 summary table above; **flags a profitability problem
       that must be resolved before live**, separate from the mechanical pass).
 
-These are tracked, explicitly deferred items rather than unknowns — the core Phase 7
-deliverables (3-month campaign, spread stress) both passed cleanly.
+**All five deferred items are now closed (2026-07-17).** Phase 7 has no open threads; the
+sole remaining pre-live blocker is the profitability finding from Run 05.

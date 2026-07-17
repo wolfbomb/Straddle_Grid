@@ -1,0 +1,29 @@
+; Hydra scenario 09 — LIVE-DEMO restart-mid-ACTIVE + foreign-order test
+; (deferred Phase 7 item; automated 2026-07-17 per user request).
+; ⚠ TEST-ONLY gate loosening (session/ATR/spread) so the grid deploys
+; immediately regardless of time of day — NEVER use these values on a
+; real chart. AUTO_TRADING_ENABLED=true is intentional here: this preset
+; exists solely to trade a DEMO account under the restart_test.py harness.
+AUTO_TRADING_ENABLED=true
+MagicNumber=20260713
+GridLevels=9
+GridSpacingUSD=0.70
+FirstLevelOffsetUSD=0.50
+LotProgressionCSV=0.01,0.01,0.02,0.02,0.02,0.03,0.04,0.04,0.05
+OCO_Mode=true
+GridTTLMin=240
+BasketTP_USD=15.0
+BasketSL_USD=10.0
+TrailActivate_USD=8.0
+TrailDistance_USD=4.0
+Session1=00:00-23:59
+Session2=00:00-23:59
+ATR_Min_USD=0.01
+ATR_Max_USD=999.0
+MaxSpreadPoints=300
+MinMarginLevelPct=100.0
+MaxDailyLossPct=90.0
+WhipsawWindowSec=300
+WhipsawCooldownMin=60
+MaxWhipsawsPerDay=2
+DashSelfTest=false

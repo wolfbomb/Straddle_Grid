@@ -93,17 +93,16 @@
       which was found to be a no-op on this MT5 build — see `docs/TEST_REPORT_P7.md`.)
 - [x] Zero partial grids across the entire run (scripted log audit). (484 deploys = 484
       full 9+9 grids, exact match, run 05.)
-- [ ] Zero orphaned orders after every simulated restart mid-ACTIVE. **Deferred** — not
-      exercised in this pass (needs a live/demo chart restart, not a backtest).
-- [ ] All four §11 explicit cases re-verified on this build. **Partial**: trailing-floor
-      retrace proven (163 instances, run 05); whipsaw proven but last run on v1.9, not
-      reconfirmed on v2.0 (deferred, low risk — Phase 6 didn't touch whipsaw code);
-      restart-recovery and stops-level-rejection both deferred, not exercised this pass.
-- [ ] Foreign orders/positions untouched throughout. Not independently exercised — backtests
-      start from a clean simulated account by construction; more relevant to the live/demo
-      pre-deploy checklist.
-- [x] `docs/TEST_REPORT_P7.md` written: settings, date ranges, per-case pass/fail. (P/L
-      summary from the `.htm` reports not yet pulled in — noted as outstanding in the report.)
+- [x] Zero orphaned orders after every simulated restart mid-ACTIVE. (2026-07-17, run 09:
+      real hard-kill on a live demo chart with 2 positions + 7 pendings — EA re-attached,
+      tickets preserved, zero duplicates; `tools/restart-test/`.)
+- [x] All four §11 explicit cases re-verified on this build. (Trailing-floor retrace:
+      run 05; whipsaw: run 04 re-run on v2.0, 2026-07-17; stops-level rejection: run 07,
+      2026-07-17; restart-recovery: run 09, 2026-07-17.)
+- [x] Foreign orders/positions untouched throughout. (2026-07-17, run 09: magic-77777
+      pending byte-identical through deploy, fills, OCO, crash, restart, cleanup.)
+- [x] `docs/TEST_REPORT_P7.md` written: settings, date ranges, per-case pass/fail, and the
+      full P/L summary (pulled 2026-07-17 — flags the pre-live profitability problem).
 
 ## Phase 8 — Dashboard Panel
 
@@ -113,14 +112,20 @@
 spread/ATR, grid status, basket P/L, scaled TP/SL/trail-floor targets, whipsaw counter +
 cooldown countdown, TTL countdown), and leftover-object cleanup on EA removal.
 
-**Still manual (requires a screen — run `./run_tests.sh hydra_dash_visual` and watch):**
-- [ ] A real header click actually collapses the panel to the title bar; clicking again
-      actually expands it.
-- [ ] Switch timeframe (e.g. M1→M5→M1) → panel still there, collapse state preserved. The
-      read-back guard verifies object *content*, not that a real `CHARTEVENT_CHART_CHANGE`
-      correctly rebuilds/preserves the panel — that still needs a screen.
-- [ ] The panel doesn't visually overlap the chart's native top-left OHLC/price label.
-- [ ] General "does it look right" pass — fonts, spacing, readability, colors as expected.
+**Automated as of 2026-07-17 (synthetic battery + live-chart pixel review — design-doc addendum):**
+- [x] Header click collapses to title bar / re-click expands — synthetic
+      `CHARTEVENT_OBJECT_CLICK` battery (`hydra_08_dash_selftest`): 27 checks, 0 failures.
+- [x] Timeframe-switch persistence — synthetic `CHARTEVENT_CHART_CHANGE` between/after
+      collapse toggles: state survives the rebuild (same battery).
+- [x] OHLC-label overlap + general "looks right" — PrintWindow captures of the panel on a
+      real demo chart (`tools/restart-test/shots/`), reviewed 2026-07-17: blue-ARMED and
+      red-ACTIVE-drawdown accents rendered correctly, no OHLC overlap, rows readable.
+      Found + fixed in the same pass: empty `GateFailName` rendered MT5's default "Label"
+      string (renderer-only artifact invisible to read-back; now writes `" "`).
+
+**Residual (optional, first time a human is at a screen):** one real mouse click on the
+header — the only link code can't exercise is MT5's pixel hit-testing that converts a
+physical click into `CHARTEVENT_OBJECT_CLICK`.
 
 ---
 

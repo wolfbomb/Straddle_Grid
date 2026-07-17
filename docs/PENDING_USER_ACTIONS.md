@@ -1,66 +1,41 @@
 # PENDING_USER_ACTIONS.md — Your Test Queue
 
-> Everything currently waiting on you (the user, at your MT5 PC/Mac).
-> Current build: `Straddle_Grid.mq5` **v2.0** (Phases 1–6 complete + Phase 8 dashboard code).
-> Phase 7 (validation campaign) closed 2026-07-15; its five deferred items were reduced to
-> two on 2026-07-17 (see below).
+> Everything currently waiting on you (the user).
+> Current build: `Straddle_Grid.mq5` **v2.1** — **Phases 1–8 all complete.**
 >
-> ✅ **Validated so far** (tester, real ticks, VTMarkets-Demo): compile clean · gates +
-> short-circuit · grid deploy 9+9 with correct prices/lots · OCO cancel · sequential fills ·
-> TTL expiry/redeploy (no partial grids) · whipsaw guard — **re-confirmed on the current
-> v2.0 binary 2026-07-17** (4 firings, correct gap math/cooldowns, 2/2 daily lockout) ·
-> Basket Manager: TP/SL scaling exact, trailing floor monotonic-only, 60 s post-exit
-> cooldown · 3-month campaign (484 full cycles, zero partial grids/orphans/errors) ·
-> spread stress (62/62 blocked by gate 3) · **stops-level rejection (NEW run 07,
-> 2026-07-17):** 19,868 clean pre-send aborts, zero orders, zero broker errors ·
-> **dashboard self-test PASS** (read-back guard, 0 DASH-FAIL across hydra_02/04/07 —
-> verified UTF-16-aware after fixing an encoding blind spot in the scan itself).
-> Full detail in `docs/TEST_REPORT_P7.md`.
+> ✅ **Validated** (full detail in `docs/TEST_REPORT_P7.md` + `docs/CHECKLIST.md`):
+> compile clean · all 5 gates + short-circuit · grid deploy 9+9 · OCO · sequential fills ·
+> TTL expiry · whipsaw guard (re-confirmed on the shipping binary) · Basket Manager
+> (scaling exact, trailing monotonic, post-exit cooldown) · 3-month campaign (484 clean
+> cycles) · spread stress (62/62 blocked) · stops-level rejection (19,868 clean pre-send
+> aborts, zero orders) · **restart mid-`ACTIVE` on a live demo chart** (hard-kill with 2
+> positions + 7 pendings → recovered, zero duplicates) · **foreign orders untouched**
+> (verified through a full live cycle incl. crash) · dashboard fully verified (read-back
+> guard + 27-check synthetic battery + live-chart pixel review; the empty-gates-row
+> "Label" artifact found in review is fixed in v2.1).
 >
-> 🚀 Shortcut: `tools/strategy-tester/run_tests.sh [filter...]` — works from Windows Git Bash.
+> The only dashboard check no code can make: one physical mouse click on the header
+> (MT5's own pixel hit-testing). Entirely optional — try it whenever you're next at a
+> chart; the click handler itself is proven.
 
-## ⚠ NEW FINDING you should read (2026-07-17): campaign P/L is negative
+## ⚠ THE one open problem before live: negative campaign P/L
 
-The deferred "pull P/L from the .htm reports" item is done, and it surfaced something the
-mechanical pass criteria didn't: **the 3-month campaign lost money at production defaults**
-— net **−$1,770.44** on $10,000 (−17.7%), profit factor 0.95, max equity drawdown 36.6%
-(3,290 trades; 51% winners; exit mix 7% TP / 59% SL / 34% trail-floor). The code is doing
-exactly what it was told; what it was told isn't (yet) an edge on this window. This needs a
-parameter/strategy pass (session tightening, exit tuning, spacing/progression rework +
-re-test) **before any live deployment**. Full table in `docs/TEST_REPORT_P7.md` §Run 05.
+Run 05 (3 months, production defaults): **−$1,770 on $10k (−17.7%), PF 0.95, max equity
+DD 36.6%**. Mechanics are proven; the edge isn't. An automated parameter sweep over the
+basket-exit space (TP/SL/trail — 625 combinations, same 3-month window) has been
+prepared/launched via `tools/strategy-tester/run_opt.sh hydra_opt_01_exits`; results land
+in `docs/OPT_REPORT.md` when summarized. Sweep passes run on M1-OHLC for speed — any
+promising candidate must be re-validated on real ticks (Model=4) before trusting it.
 
-## Phase 8 — Dashboard: automated checks all PASS, only the 4 eyes-on items left
+**Your decision when results are in:** pick a re-validated parameter set, or direct a
+deeper strategy rework (sessions, spacing/progression, entry filter). Nothing goes live
+until this is resolved — the 1-week demo soak (`docs/CHECKLIST.md` §Final Pre-Deploy)
+stays blocked on it.
 
-Done without you (2026-07-17): latest source synced to the MT5 data folder, recompiled
-headlessly (**0 errors / 0 warnings**), and the automated dashboard self-test ran through
-hydra_02 + hydra_04 + hydra_07 with **0 [DASH-FAIL] lines**. (Also fixed: the PASS/FAIL
-scan in `run_tests.sh` couldn't decode MT5's UTF-16 tester logs and could have printed a
-false PASS — it now decodes properly and reports INCONCLUSIVE if it can't.)
-
-Still needs a human at a screen (`./run_tests.sh hydra_dash_visual`, or attach to a demo
-chart with `AUTO_TRADING_ENABLED=false`):
-
-- [ ] Header click actually collapses/expands the panel.
-- [ ] Switch timeframe (M1→M5→M1) → panel still there, collapse state preserved.
-- [ ] Panel doesn't overlap the chart's native OHLC/price label.
-- [ ] General "does it look right" pass.
-
-Report back what you see (screenshots help) — once it passes, v2.0 → v2.1 and
-`Phase 8 complete` gets committed.
-
-## Remaining deferred items (down from five)
-
-- [ ] **Restart mid-`ACTIVE`** — needs a live/demo chart restart, not a backtest.
-- [ ] **Foreign-orders-untouched check** — belongs to the live/demo pre-deploy checklist.
-- [x] ~~Whipsaw guard re-run on v2.0~~ — done 2026-07-17 (run 04 re-run).
-- [x] ~~Stops-level rejection forced test~~ — done 2026-07-17 (run 07, new permanent scenario).
-- [x] ~~P/L summary from .htm reports~~ — done 2026-07-17 (and flagged the profitability problem above).
-
-## Upcoming (for awareness)
+## Upcoming
 
 | When | Task |
 |---|---|
-| Now | Phase 8 visual verification (4 items above) |
-| Now-ish | Decide how to attack the negative-P/L finding (parameter pass vs strategy rework) |
-| Before pre-live | Restart mid-ACTIVE + foreign-orders checks |
-| Pre-live | 1-week demo soak with `AUTO_TRADING_ENABLED=true` (final checklist in `docs/CHECKLIST.md`) — **blocked on the P/L finding being resolved** |
+| When opt results are in | Review sweep summary, pick candidates for real-tick re-validation |
+| Optional, next time at a screen | One physical header click on the dashboard |
+| Pre-live | 1-week demo soak with `AUTO_TRADING_ENABLED=true` — blocked on the P/L fix |

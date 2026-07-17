@@ -1,0 +1,32 @@
+; Hydra scenario 08 — dashboard self-test battery (design-doc addendum 2026-07-17)
+; hydra_02's proven production defaults + DashSelfTest=true. The battery
+; synthesizes the header click and CHARTEVENT_CHART_CHANGE through the real
+; OnChartEvent handler and asserts collapse/expand geometry, row visibility,
+; the ▲/▼ arrow, and collapse persistence via read-back. Failures log
+; [DASH-FAIL] (counted by run_tests.sh); success logs a positive
+; "[DASH-SELFTEST] synthetic battery complete: N checks, 0 failures" line.
+; In visual mode (hydra_dash_visual_auto.ini) it additionally saves a PNG of
+; every display state for appearance review.
+AUTO_TRADING_ENABLED=true
+MagicNumber=20260713
+GridLevels=9
+GridSpacingUSD=0.70
+FirstLevelOffsetUSD=0.50
+LotProgressionCSV=0.01,0.01,0.02,0.02,0.02,0.03,0.04,0.04,0.05
+OCO_Mode=true
+GridTTLMin=45
+BasketTP_USD=15.0
+BasketSL_USD=10.0
+TrailActivate_USD=8.0
+TrailDistance_USD=4.0
+Session1=07:00-10:00
+Session2=12:00-15:00
+ATR_Min_USD=1.5
+ATR_Max_USD=8.0
+MaxSpreadPoints=35
+MinMarginLevelPct=500.0
+MaxDailyLossPct=3.0
+WhipsawWindowSec=300
+WhipsawCooldownMin=60
+MaxWhipsawsPerDay=2
+DashSelfTest=true

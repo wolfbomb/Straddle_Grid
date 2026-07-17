@@ -55,10 +55,14 @@ input int     WhipsawWindowSec     = 300;
 input int     WhipsawCooldownMin   = 60;
 input int     MaxWhipsawsPerDay    = 2;
 
+input group "── Self-Test (tester only) ──"
+input bool    DashSelfTest         = false;   // synthetic dashboard battery + visual screenshots;
+                                              // hard-gated on MQL_TESTER — inert on a live chart
+
 //+------------------------------------------------------------------+
 //| ===================== GLOBALS / STATE =========================== |
 //+------------------------------------------------------------------+
-#define HYDRA_VERSION        "v2.0"          // single source of truth — dashboard header reads this
+#define HYDRA_VERSION        "v2.1"          // single source of truth — dashboard header reads this
 #define HYDRA_COMMENT_PREFIX "SIGMA.Hydra"   // order comment prefix (SIGMA convention)
 
 // Persistent global-variable keys (namespaced SIGMA.Hydra.<symbol>.<key>,
@@ -127,6 +131,11 @@ double   g_trailFloor  = 0.0;               // locked profit floor (ratchets up 
 #define DASH_FONTSIZE   8
 bool     g_dashCollapsed = false;           // default expanded (CLAUDE.md §10.1)
 bool     g_dashBuilt     = false;           // objects created at least once this session
+
+//--- Dashboard self-test (design-doc addendum 2026-07-17; DashSelfTest input)
+bool     g_selfTestDone  = false;           // synthetic battery runs exactly once per test
+int      g_selfTestFails = 0;               // battery failure count (also logged as [DASH-FAIL])
+string   g_lastShotKey   = "";              // last display-state screenshot taken (visual mode)
 
 //+------------------------------------------------------------------+
 //| ================== ONINIT (STATE RECOVERY) ====================== |
@@ -342,6 +351,18 @@ void OnTick()
      }
 
    UpdateDashboard();   // Phase 8: cheap property refresh only, every tick
+
+   // Self-test hooks (design-doc addendum 2026-07-17). Hard-gated on the
+   // tester so the input is inert on a live chart even if flipped true.
+   if(DashSelfTest && MQLInfoInteger(MQL_TESTER))
+     {
+      if(!g_selfTestDone && g_dashBuilt)
+        {
+         RunDashSyntheticBattery();
+         g_selfTestDone = true;
+        }
+      DashScreenshotOnStateChange();
+     }
   }
 
 //+------------------------------------------------------------------+
@@ -1257,9 +1278,14 @@ void UpdateDashboard()
       if(g_gateEvaluated[g] && !g_gatePass[g] && failName == "")
          failName = g_gateNames[g];
      }
-   ObjectSetString(0, DASH_PREFIX + "GateFailName", OBJPROP_TEXT, failName);
+   // MT5 renders an OBJ_LABEL whose text property is "" as the literal
+   // default string "Label" (found via live-chart pixel review 2026-07-17;
+   // the read-back guard can't see it — the stored property really is "").
+   // Write a single space instead so a fully-green gates row shows nothing.
+   string failText = (failName == "" ? " " : failName);
+   ObjectSetString(0, DASH_PREFIX + "GateFailName", OBJPROP_TEXT, failText);
    ObjectSetInteger(0, DASH_PREFIX + "GateFailName", OBJPROP_COLOR, clrRed);
-   VerifyTextProp("GateFailName", DASH_PREFIX + "GateFailName", failName);
+   VerifyTextProp("GateFailName", DASH_PREFIX + "GateFailName", failText);
 
    // Row: Session
    MqlDateTime dt;
@@ -1368,6 +1394,131 @@ void OnChartEvent(const int id, const long &lparam, const double &dparam, const 
       BuildDashboard();
       UpdateDashboard();
      }
+  }
+
+//+------------------------------------------------------------------+
+//| ================ DASHBOARD SELF-TEST (tester only) =============== |
+//| Design-doc addendum 2026-07-17: synthetic-event battery covering  |
+//| the previously-manual collapse / timeframe-persistence checks,    |
+//| plus visual-mode screenshots for the appearance/overlap review.   |
+//| Every assertion failure logs the same [DASH-FAIL] format the      |
+//| passive read-back guard uses, so run_tests.sh counts them too.    |
+//+------------------------------------------------------------------+
+
+//--- One battery assertion: silent on pass, [DASH-FAIL] on failure
+void DashAssert(const bool cond, const string what)
+  {
+   if(cond)
+      return;
+   g_selfTestFails++;
+   HydraLog("[DASH-FAIL] row=selftest field=" + what);
+  }
+
+//--- Synthesize one chart event through the real handler
+void DashSendEvent(const int id, const string objName)
+  {
+   long   lp = 0;
+   double dp = 0.0;
+   string sp = objName;
+   OnChartEvent(id, lp, dp, sp);
+  }
+
+//--- Read back whether a body row is currently visible (OBJ_ALL_PERIODS)
+bool DashRowVisible(const string rowKey)
+  {
+   return(ObjectGetInteger(0, DASH_PREFIX + "Row_" + rowKey, OBJPROP_TIMEFRAMES) == OBJ_ALL_PERIODS);
+  }
+
+//--- Assert the panel's full collapsed-or-expanded shape via read-back
+void DashAssertShape(const bool collapsed, const string phase)
+  {
+   int expectH = collapsed ? DASH_HEADER_H : DASH_HEADER_H + DASH_ROW_H * DASH_ROWS;
+   DashAssert(g_dashCollapsed == collapsed,   phase + "_state");
+   DashAssert((int)ObjectGetInteger(0, DASH_PREFIX + "BG", OBJPROP_YSIZE) == expectH,
+                                              phase + "_bg_height");
+   DashAssert(DashRowVisible("State")   != collapsed, phase + "_row_state_visibility");
+   DashAssert(DashRowVisible("Expiry")  != collapsed, phase + "_row_expiry_visibility");
+   string hdr = ObjectGetString(0, DASH_PREFIX + "HeaderText", OBJPROP_TEXT);
+   DashAssert(StringFind(hdr, collapsed ? "▲" : "▼") >= 0, phase + "_header_arrow");
+  }
+
+//--- The battery: runs exactly once, first tick after the panel is built.
+//    Ends in the same expanded state it started from.
+void RunDashSyntheticBattery()
+  {
+   int failsBefore = g_selfTestFails;
+
+   // Baseline: default-expanded panel (CLAUDE.md §10.1)
+   DashAssertShape(false, "baseline");
+
+   // Static geometry: panel sits below the terminal's one-line OHLC label
+   // (~16 px tall at the top-left) and inside the chart when its pixel
+   // height is known (0 = not yet available on this chart — skip, screenshots
+   // cover it in the visual run).
+   DashAssert(DASH_Y >= 18, "geometry_below_ohlc_label");
+   long chartH = ChartGetInteger(0, CHART_HEIGHT_IN_PIXELS, 0);
+   if(chartH > 0)
+      DashAssert(DASH_Y + DASH_HEADER_H + DASH_ROW_H * DASH_ROWS <= (int)chartH,
+                 "geometry_fits_chart_height");
+
+   // 1) Synthetic header click -> collapses to title bar
+   DashSendEvent(CHARTEVENT_OBJECT_CLICK, DASH_PREFIX + "HeaderText");
+   DashAssertShape(true, "collapse_click");
+   DashScreenshot("PANEL_COLLAPSED");
+
+   // 2) Synthetic timeframe switch while collapsed -> state preserved
+   DashSendEvent(CHARTEVENT_CHART_CHANGE, "");
+   DashAssertShape(true, "tf_switch_collapsed");
+
+   // 3) Second click (on the header rect this time) -> expands again
+   DashSendEvent(CHARTEVENT_OBJECT_CLICK, DASH_PREFIX + "Header");
+   DashAssertShape(false, "expand_click");
+
+   // 4) Synthetic timeframe switch while expanded -> still expanded
+   DashSendEvent(CHARTEVENT_CHART_CHANGE, "");
+   DashAssertShape(false, "tf_switch_expanded");
+   DashScreenshot("PANEL_EXPANDED");
+
+   int checks = 26 + (chartH > 0 ? 1 : 0);   // 5 shapes x 5 asserts + geometry
+   HydraLog(StringFormat("[DASH-SELFTEST] synthetic battery complete: %d checks, %d failures",
+                         checks, g_selfTestFails - failsBefore));
+  }
+
+//--- Screenshot helper: visual mode only; silent no-op elsewhere
+void DashScreenshot(const string key)
+  {
+   if(!MQLInfoInteger(MQL_VISUAL_MODE))
+      return;
+   string fname = "HydraDash_" + key + ".png";
+   if(ChartScreenShot(0, fname, 1280, 800, ALIGN_LEFT))
+      HydraLog("[DASH-SELFTEST] screenshot saved: " + fname);
+   else
+      HydraLog("[DASH-SELFTEST] screenshot FAILED for " + fname);
+  }
+
+//--- Capture each distinct display state once (visual mode): the five
+//    accent variants of CLAUDE.md §10.1.
+void DashScreenshotOnStateChange()
+  {
+   if(!MQLInfoInteger(MQL_VISUAL_MODE))
+      return;
+   string key = StateName(g_state);
+   if(g_state == STATE_ACTIVE)
+     {
+      double volume, pl;
+      GetBasketPL(volume, pl);
+      key += (pl >= 0.0 ? "_PROFIT" : "_DRAWDOWN");
+     }
+   if(key == g_lastShotKey)
+      return;
+   // Only shoot the first time each key is ever seen this run
+   static string seen = "|";
+   if(StringFind(seen, "|" + key + "|") < 0)
+     {
+      seen += key + "|";
+      DashScreenshot(key);
+     }
+   g_lastShotKey = key;
   }
 
 //+------------------------------------------------------------------+

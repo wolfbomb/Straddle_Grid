@@ -171,6 +171,10 @@ input group "── Whipsaw Guard ──"
 input int     WhipsawWindowSec     = 300;
 input int     WhipsawCooldownMin   = 60;
 input int     MaxWhipsawsPerDay    = 2;
+
+input group "── Self-Test (tester only) ──"
+input bool    DashSelfTest         = false;   // synthetic dashboard battery + visual-mode screenshots;
+                                              // hard-gated on MQLInfoInteger(MQL_TESTER) — inert on a live chart
 ```
 
 **Field note (2026-07-13, live VT Markets XAUUSD-VIP):** `SYMBOL_TRADE_STOPS_LEVEL` = 20 pts,
@@ -248,6 +252,17 @@ verify no partial grids, no orphaned orders after restart mid-ACTIVE.
 | Expiry | Grid TTL countdown while ARMED |
 
 Keep the panel read-only — no trade buttons (SIGMA safety convention: the only master switch is the input + terminal AutoTrading button).
+
+**Self-verification (2026-07-16/17, see `docs/superpowers/specs/2026-07-16-dashboard-selftest-design.md`):**
+1. *Passive read-back guard* — every dashboard property write is read back and compared;
+   mismatches log `[DASH-FAIL]` lines that `run_tests.sh` counts (UTF-16-aware) into a
+   PASS/FAIL summary per run. Always on, live and tester; silent when correct.
+2. *Synthetic event battery + screenshots* (`DashSelfTest=true`, tester-only): synthesizes
+   the header click and `CHARTEVENT_CHART_CHANGE` through `OnChartEvent()` and asserts
+   collapse/expand geometry, row visibility, arrow glyph, and collapse persistence; in
+   visual mode also captures `ChartScreenShot()` PNGs of every display state for review.
+   The only check code cannot make is MT5's own mouse-pixel → `CHARTEVENT_OBJECT_CLICK`
+   hit-testing (platform behavior).
 
 ---
 

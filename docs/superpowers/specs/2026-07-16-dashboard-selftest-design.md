@@ -75,11 +75,40 @@ Hold `HYDRA_VERSION` at v2.0 until both:
 This follows the existing "bump once confirmed working" pattern already used for Phase 6 and
 Phase 8's initial implementation — just with a smaller manual confirmation step now.
 
+## Addendum (2026-07-17): Approach B re-scoped IN by user request
+
+The user asked to automate the remaining eyes-on items ("can you automate these 3 items",
+2026-07-17), which supersedes the earlier decision to decline Approach B. Added:
+
+1. **Synthetic event battery** (`RunDashSyntheticBattery()`, tester-gated behind a new
+   test-only input `DashSelfTest=false` + `MQLInfoInteger(MQL_TESTER)`): calls
+   `OnChartEvent()` directly with `CHARTEVENT_OBJECT_CLICK` on the header and
+   `CHARTEVENT_CHART_CHANGE`, asserting via read-back after each step: collapse state
+   toggles, BG height switches between header-only and full, body rows hide/show
+   (`OBJPROP_TIMEFRAMES`), header arrow flips ▲/▼, and collapse state survives the
+   rebuild. Failures reuse the `[DASH-FAIL]` format (counted by `run_tests.sh`); a
+   positive `[DASH-SELFTEST] ... N checks, M failures` line proves the battery ran.
+   Residual risk not covered: MT5's own pixel hit-testing that turns a physical mouse
+   click into `CHARTEVENT_OBJECT_CLICK` (platform code, not ours).
+2. **Screenshot capture** (visual mode only): first occurrence of each display state
+   (IDLE / ARMED / ACTIVE-profit / ACTIVE-drawdown / COOLDOWN) plus the collapsed and
+   re-expanded panel during the battery is saved via `ChartScreenShot()`; Claude reviews
+   the PNGs for the overlap + "looks right" checks in place of a human eyeball pass.
+3. New config: `hydra_08_dash_selftest` (headless battery, part of the numbered suite).
+   A `hydra_dash_visual_auto` config (Visual=1 + ShutdownTerminal=1 + `ChartScreenShot`)
+   was tried and **removed**: on this MT5 build (5836) a config-launched Visual=1 run
+   keeps its journal only in the UI and never executed the screenshot path — same class
+   of silently-ignored config behavior as the `[Tester] Spread=` override found in
+   Phase 7. Pixel evidence comes instead from `tools/restart-test/` window captures
+   (PrintWindow) of the panel on a **real** demo chart during the restart test —
+   strictly better than tester rendering for the overlap/"looks right" review.
+
 ## Out of scope
 
-- Synthesizing a real `CHARTEVENT_OBJECT_CLICK` or otherwise testing the collapse/expand
+- ~~Synthesizing a real `CHARTEVENT_OBJECT_CLICK` or otherwise testing the collapse/expand
   geometry logic without a real click (considered as "Approach B" and declined — smaller,
-  safer change was preferred; the click handler is ~6 lines and low regression risk).
+  safer change was preferred; the click handler is ~6 lines and low regression risk).~~
+  **Re-scoped in 2026-07-17 — see Addendum above.**
 - Any change to trading logic, gates, whipsaw guard, or basket management — this work touches
   only the dashboard rendering/verification path.
 - General-purpose self-test scaffolding for future phases (state machine, gates, basket math) —
