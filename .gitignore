@@ -28,3 +28,7 @@ tools/strategy-tester/.merged/
 
 # Per-machine tester runner paths (not secrets, just local-only)
 tools/strategy-tester/.env.local
+
+# restart-test generated artifacts
+tools/restart-test/__pycache__/
+tools/restart-test/_startup_generated.ini

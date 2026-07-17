@@ -40,4 +40,4 @@ echo "Launching optimization: $NAME (this can run a long time)"
 MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*' \
     "$TERMINAL" "/config:$(cygpath -w "$MERGED")"
 echo "Optimization run finished: $NAME"
-echo "Report: $DATADIR/$(grep -oP '^Report=\K.*' "$INI" | tr -d '\r').htm (plus .xml opt results if produced)"
+echo "Report: $DATADIR/$(sed -n 's/^Report=//p' "$INI" | tr -d '\r').htm (plus .xml opt results if produced)"

@@ -18,19 +18,22 @@
 > (MT5's own pixel hit-testing). Entirely optional — try it whenever you're next at a
 > chart; the click handler itself is proven.
 
-## ⚠ THE one open problem before live: negative campaign P/L
+## ⚠ THE one open problem before live: negative campaign P/L — exit sweep DONE, answer is "not exits"
 
-Run 05 (3 months, production defaults): **−$1,770 on $10k (−17.7%), PF 0.95, max equity
-DD 36.6%**. Mechanics are proven; the edge isn't. An automated parameter sweep over the
-basket-exit space (TP/SL/trail — 625 combinations, same 3-month window) has been
-prepared/launched via `tools/strategy-tester/run_opt.sh hydra_opt_01_exits`; results land
-in `docs/OPT_REPORT.md` when summarized. Sweep passes run on M1-OHLC for speed — any
-promising candidate must be re-validated on real ticks (Model=4) before trusting it.
+Run 05 baseline: **−$1,770 on $10k (−17.7%), PF 0.95, eqDD 36.6%** at production defaults.
+The automated attack ran 2026-07-17 (full detail in `docs/OPT_REPORT.md`):
 
-**Your decision when results are in:** pick a re-validated parameter set, or direct a
-deeper strategy rework (sessions, spacing/progression, entry filter). Nothing goes live
-until this is resolved — the 1-week demo soak (`docs/CHECKLIST.md` §Final Pre-Deploy)
-stays blocked on it.
+- **625-combination exit sweep** (TP/SL/trail, 3-month window): only 18/625 profitable,
+  all at the tightest exits tested (TP10/SL6).
+- **Real-tick validation of the two winners: REJECTED** — both collapse to PF 0.84,
+  −$5.5k, ~70% drawdown. The OHLC model's profitable island was an artifact; tight
+  dollar-stops live inside intrabar noise.
+
+**Conclusion: exit tuning cannot fix this edge; the loss source is entry-side.** Your
+direction is needed (see OPT_REPORT §Recommended next steps): a real-tick session/spacing
+exploration, or a strategy-concept rethink (e.g. news-window-only deployment per the
+original displacement thesis). Live deployment and the demo soak stay **blocked** until
+something beats "don't trade" on real ticks.
 
 ## Upcoming
 
