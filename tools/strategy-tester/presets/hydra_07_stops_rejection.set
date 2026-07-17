@@ -1,0 +1,31 @@
+; Hydra scenario 07 — stops-level rejection at deploy (deferred Phase 7 item)
+; Production defaults except FirstLevelOffsetUSD dropped to 0.10: gate 3
+; only validates GridSpacingUSD (0.70, untouched, passes), so the gates all
+; go green — but buy level 0 lands at mid+0.10 ≈ ask−0.05, inside the 20-pt
+; SYMBOL_TRADE_STOPS_LEVEL distance, so DeployGrid()'s pre-flight must
+; abort the whole deployment before sending anything. Expected: only
+; "deployment ABORTED — buy level 0 ... violates min distance" lines,
+; zero orders, zero ARMED transitions, state IDLE end-to-end.
+; ⚠ TEST-ONLY FirstLevelOffsetUSD — never use 0.10 on a chart.
+AUTO_TRADING_ENABLED=true
+MagicNumber=20260713
+GridLevels=9
+GridSpacingUSD=0.70
+FirstLevelOffsetUSD=0.10
+LotProgressionCSV=0.01,0.01,0.02,0.02,0.02,0.03,0.04,0.04,0.05
+OCO_Mode=true
+GridTTLMin=45
+BasketTP_USD=15.0
+BasketSL_USD=10.0
+TrailActivate_USD=8.0
+TrailDistance_USD=4.0
+Session1=07:00-10:00
+Session2=12:00-15:00
+ATR_Min_USD=1.5
+ATR_Max_USD=8.0
+MaxSpreadPoints=35
+MinMarginLevelPct=500.0
+MaxDailyLossPct=3.0
+WhipsawWindowSec=300
+WhipsawCooldownMin=60
+MaxWhipsawsPerDay=2

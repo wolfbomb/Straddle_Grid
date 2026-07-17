@@ -92,12 +92,37 @@ merge_config() {   # $1 = original ini path  ->  echoes merged path
     echo "$MERGED"
 }
 
+count_in_log() {   # $1 = log file; echoes number of DASH-FAIL lines.
+    # MT5 tester logs are UTF-16LE (BOM ff fe) on this build — plain grep
+    # sees only NUL-laced bytes and silently counts 0, which would turn a
+    # real failure into a false PASS. Detect the BOM and decode first.
+    local f="$1"
+    if [ "$(head -c 2 "$f" | od -An -tx1 | tr -d ' \n')" = "fffe" ]; then
+        if command -v iconv >/dev/null 2>&1; then
+            iconv -f UTF-16LE -t UTF-8 "$f" 2>/dev/null | grep -c 'DASH-FAIL'
+        elif [ "${PLATFORM:-}" = windows ]; then
+            # Git Bash commonly ships without iconv; PowerShell decodes natively.
+            powershell -NoProfile -Command \
+                "(Select-String -Path '$(cygpath -w "$f")' -Pattern 'DASH-FAIL' -SimpleMatch -Encoding Unicode | Measure-Object).Count" \
+                2>/dev/null | tr -d '\r'
+        else
+            echo "-1"   # cannot decode — caller reports INCONCLUSIVE
+        fi
+    else
+        grep -c 'DASH-FAIL' "$f" 2>/dev/null || true
+    fi
+}
+
 report_dash_fail_summary() {   # $1 = tester root dir (DATADIR or DATA_DIR)
-    local root="$1" hits=0 total=0 scanned=0 report=""
+    local root="$1" hits=0 total=0 scanned=0 undecodable=0 report=""
     while IFS= read -r -d '' logfile; do
         scanned=$((scanned + 1))
-        hits="$(grep -c 'DASH-FAIL' "$logfile" 2>/dev/null || true)"
+        hits="$(count_in_log "$logfile")"
         hits="${hits:-0}"
+        if [ "$hits" = "-1" ]; then
+            undecodable=$((undecodable + 1))
+            continue
+        fi
         if [ "$hits" -gt 0 ]; then
             total=$((total + hits))
             report="${report}  $logfile: $hits hit(s)
@@ -107,8 +132,10 @@ report_dash_fail_summary() {   # $1 = tester root dir (DATADIR or DATA_DIR)
     echo "------------------------------------------------------------"
     if [ "$scanned" -eq 0 ]; then
         echo "Dashboard self-test: INCONCLUSIVE — no Tester logs found under $root/Tester newer than this run"
+    elif [ "$undecodable" -gt 0 ]; then
+        echo "Dashboard self-test: INCONCLUSIVE — $undecodable UTF-16 log(s) could not be decoded (no iconv/PowerShell)"
     elif [ "$total" -eq 0 ]; then
-        echo "Dashboard self-test: PASS (0 [DASH-FAIL] lines across this run)"
+        echo "Dashboard self-test: PASS (0 [DASH-FAIL] lines across $scanned decoded log(s) this run)"
     else
         echo "Dashboard self-test: FAIL ($total [DASH-FAIL] line(s)):"
         printf '%s' "$report"
