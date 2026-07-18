@@ -18,27 +18,30 @@
 > (MT5's own pixel hit-testing). Entirely optional — try it whenever you're next at a
 > chart; the click handler itself is proven.
 
-## ⚠ THE one open problem before live: negative campaign P/L — exit sweep DONE, answer is "not exits"
+## ⚠ THE one open problem before live: negative campaign P/L — two full sweeps done, both negative
 
 Run 05 baseline: **−$1,770 on $10k (−17.7%), PF 0.95, eqDD 36.6%** at production defaults.
-The automated attack ran 2026-07-17 (full detail in `docs/OPT_REPORT.md`):
+Two independent real-tick attacks (full detail in `docs/OPT_REPORT.md`):
 
-- **625-combination exit sweep** (TP/SL/trail, 3-month window): only 18/625 profitable,
-  all at the tightest exits tested (TP10/SL6).
-- **Real-tick validation of the two winners: REJECTED** — both collapse to PF 0.84,
-  −$5.5k, ~70% drawdown. The OHLC model's profitable island was an artifact; tight
-  dollar-stops live inside intrabar noise.
+- **Exit sweep** (625 OHLC combos, top 2 re-validated on real ticks): **REJECTED** — both
+  collapse to PF 0.84, ~70% drawdown. The OHLC "winners" were a model artifact.
+- **Entry-side sweep** (9 combos, session windows × `GridSpacingUSD`, **real ticks from
+  the start**, 2026-07-18): **every single combination lost money.** Narrowing the
+  session window made results *worse*, not better — evidence the loss isn't concentrated
+  in a chop-heavy sub-window, it's present throughout.
 
-**Conclusion: exit tuning cannot fix this edge; the loss source is entry-side.** Your
-direction is needed (see OPT_REPORT §Recommended next steps): a real-tick session/spacing
-exploration, or a strategy-concept rethink (e.g. news-window-only deployment per the
-original displacement thesis). Live deployment and the demo soak stay **blocked** until
-something beats "don't trade" on real ticks.
+**Conclusion: this isn't a tuning-knob problem anymore.** Eighteen real-tick-valid
+configurations across both exits and entries, zero profitable. Your direction is needed
+(see `docs/OPT_REPORT.md` §Recommended next steps) — most likely a genuine
+**strategy-concept rethink**: gate deployment on scheduled news events instead of blanket
+session windows (the original CLAUDE.md §2 displacement thesis), which is a fundamentally
+different trigger than anything tested so far. Live deployment and the demo soak stay
+**blocked** until something beats "don't trade" on real ticks.
 
 ## Upcoming
 
 | When | Task |
 |---|---|
-| When opt results are in | Review sweep summary, pick candidates for real-tick re-validation |
+| Now | Decide: news-calendar-gated rework, explore remaining knobs (lot progression/GridLevels/ATR band), or pause |
 | Optional, next time at a screen | One physical header click on the dashboard |
 | Pre-live | 1-week demo soak with `AUTO_TRADING_ENABLED=true` — blocked on the P/L fix |

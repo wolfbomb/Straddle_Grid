@@ -98,9 +98,16 @@ UseLocal=1
 
 
 def terminal_running():
-    out = subprocess.run(["tasklist", "/FI", "IMAGENAME eq terminal64.exe"],
-                          capture_output=True, text=True).stdout
-    return "terminal64.exe" in out
+    # Filter by exact install path, not bare process name: other unrelated
+    # MT5 installs on this machine (e.g. D:\MT5_Demo_NAS100, D:\MT5_Live_Demo)
+    # also run as "terminal64.exe" and don't conflict with our data folder's
+    # single-instance lock - a name-only check false-blocks on them (found
+    # 2026-07-18, cost ~5.5h waiting on an unrelated stuck process).
+    ps_cmd = ("(Get-CimInstance Win32_Process -Filter \"Name='terminal64.exe'\" | "
+              f"Where-Object {{ $_.ExecutablePath -eq '{TERMINAL}' }}).Count")
+    out = subprocess.run(["powershell", "-NoProfile", "-Command", ps_cmd],
+                          capture_output=True, text=True).stdout.strip()
+    return out != "0" and out != ""
 
 
 def parse_metric(lines, label):

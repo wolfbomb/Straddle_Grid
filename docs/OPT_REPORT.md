@@ -79,13 +79,61 @@ was a **model artifact**, and caveat #1 above was not hypothetical.
    `FirstLevelOffsetUSD` geometry, and the lot progression. That is strategy rework, not
    parameter polish — a user-level decision on direction before more compute is spent.
 
+## Sweep 02 — entry-side (session windows x GridSpacingUSD), REAL TICKS (2026-07-18)
+
+Following directly from the recommendation above: since MT5's native optimizer can't
+sweep string inputs (`Session1`/`Session2`), this ran as 9 independent real-tick single
+passes via `tools/strategy-tester/entry_sweep.py` (Model=4, same window
+`2026.04.01`–`2026.07.10` as run 05) — no OHLC-model shortcut this time, every number
+below is real-tick from the start. `entry_ctrl_sp070` (current production settings) is
+the control and reproduces run 05 exactly (−1,770.44 / PF 0.95 / eqDD 36.59%), confirming
+the harness is sound.
+
+| Session window | Spacing | Profit | PF | eqDD % | Trades |
+|---|---|---|---|---|---|
+| current (3h/3h) | 0.70 (ctrl) | **−1,770.44** | 0.95 | 36.6 | 3,290 |
+| current (3h/3h) | 1.00 | **−1,604.85** | 0.95 | 35.5 | 3,042 |
+| current (3h/3h) | 1.40 | −5,227.29 | 0.78 | 59.0 | 2,156 |
+| narrow (1h/1h) | 0.70 | −4,337.58 | 0.74 | 53.3 | 1,352 |
+| narrow (1h/1h) | 1.00 | −2,935.57 | 0.80 | 37.5 | 1,273 |
+| narrow (1h/1h) | 1.40 | −3,954.61 | 0.67 | 41.8 | 1,027 |
+| open30 (30m/30m) | 0.70 | −2,688.77 | 0.80 | 37.1 | 1,125 |
+| open30 (30m/30m) | 1.00 | −2,627.72 | 0.77 | 32.5 | 977 |
+| open30 (30m/30m) | 1.40 | −3,708.82 | 0.60 | 41.9 | 777 |
+
+Full data: `docs/opt/entry_sweep_results.csv`.
+
+**Verdict: every single combination lost money.** The least-bad result
+(`entry_ctrl_sp100`, current sessions + slightly wider spacing) is only marginally better
+than production defaults and still clearly unprofitable (PF 0.95). Two findings stand
+out:
+
+1. **Narrowing the session window made things systematically worse, not better** — the
+   opposite of the "less chop exposure = better" intuition. Fewer trades under a
+   negative-edge system just means higher variance per trade (see the jump in eqDD% at
+   low trade counts), not a cleaner signal. This is evidence *against* the idea that the
+   loss is caused by trading too much low-quality time — the edge problem is present
+   throughout the window, not concentrated in a chop-heavy sub-segment these particular
+   cuts happened to isolate.
+2. **Wider spacing (1.40) was uniformly worse** across all three session variants —
+   PF dropped and eqDD spiked every time. Spacing narrower than production (already
+   floored by gate 3's stops/spread requirement, ~0.60–0.65) wasn't testable here.
+
 ## Recommended next steps (user decision)
 
-1. Direct a **real-tick, entry-side** exploration (sessions × spacing, coarse grid) — the
-   scaffolding (`run_opt.sh`, `configs/opt/`) is ready; each real-tick pass over the
-   3-month window costs a few minutes.
-2. Or pause optimization and reconsider the strategy concept itself (e.g. news-window
-   deployment only, as originally envisioned in CLAUDE.md §2's displacement thesis, vs.
-   the current always-on session windows).
-3. Live deployment remains **blocked** either way — nothing tested so far beats "don't
+Two full real-tick sweeps (18 combinations total across exits and entries) have now
+found **zero profitable configurations** on this 3.5-month window. This is stronger
+evidence than before that the problem isn't a tuning-knob problem:
+
+1. **Most likely direction:** reconsider the strategy concept itself — the original
+   thesis (CLAUDE.md §2) is a stop-order grid catching *displacement* moves (news
+   spikes, session-open expansion), not "trade continuously during a 1–3 hour window and
+   hope." A news-calendar-gated deployment (only arm the grid around scheduled
+   high-impact releases) is a fundamentally different trigger condition from anything
+   tested so far and hasn't been ruled out by this sweep.
+2. Remaining un-swept knobs (lot progression, `GridLevels`, `ATR_Min/Max_USD` band,
+   `GridTTLMin`) could still be explored real-tick if there's appetite, but given how
+   uniformly negative both swept dimensions were, the marginal odds of a knob turn
+   fixing this look low.
+3. Live deployment remains **blocked** — nothing tested across either sweep beats "don't
    trade" on this window.

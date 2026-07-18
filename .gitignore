@@ -32,3 +32,6 @@ tools/strategy-tester/.env.local
 # restart-test generated artifacts
 tools/restart-test/__pycache__/
 tools/restart-test/_startup_generated.ini
+
+# Python bytecode cache
+__pycache__/
