@@ -119,21 +119,57 @@ out:
    PF dropped and eqDD spiked every time. Spacing narrower than production (already
    floored by gate 3's stops/spread requirement, ~0.60–0.65) wasn't testable here.
 
+## News-day probe (NFP only, n=4) — proof of concept, REAL TICKS (2026-07-18)
+
+Before committing to a full news-calendar-gated rework (new EA input schema, a new gate,
+its own validation campaign), tested the underlying hypothesis directly and cheaply: does
+Hydra actually have edge on **known high-impact days**, independent of the always-on
+session-window trigger that just failed 18/18 times?
+
+**Method:** `Session1`/`Session2` are time-of-day only — the EA has no calendar-date
+concept, so isolating specific days means running short, independent backtests whose
+`FromDate`/`ToDate` bracket just one event day (no EA code change). Scope: **NFP only**
+(first Friday of the month) — the one category of "known high-impact day" computable by
+pure calendar rule for this window; real FOMC meeting dates for this fictional 2026
+aren't independently verifiable and are **not** included (same caveat as run 05's
+NFP/FOMC note). Each probe: production defaults unchanged, 3-day window (day before
+through day after the NFP Friday), one independent real-tick pass.
+
+| NFP date | Profit | PF | eqDD | Trades |
+|---|---|---|---|---|
+| 2026.04.03 | −442.94 | 0.39 | 4.43% | 51 |
+| 2026.05.01 | **+404.29** | **1.41** | 4.19% | 126 |
+| 2026.06.05 | **+167.25** | **1.16** | 6.98% | 93 |
+| 2026.07.03 | −656.54 | 0.00 | 6.60% | 28 |
+
+Full data: `docs/opt/news_day_probe_results.csv`. Aggregate across all 4: **−527.94**,
+still net negative — but **2 of 4 individual days were genuinely profitable** (PF 1.41,
+1.16), a hit rate the two systematic sweeps never produced once across 18 configurations.
+
+**Honest read: inconclusive, not a finding.** n=4 is anecdotal — a coin-flip pattern with
+two good and two bad outcomes proves nothing statistically on its own, and the aggregate
+is still negative. What it *does* show is that the day-to-day variance on known
+high-impact days looks qualitatively different from the uniform failure seen everywhere
+else tested. That's a reason to look further, not a reason to build the full gate yet.
+
 ## Recommended next steps (user decision)
 
-Two full real-tick sweeps (18 combinations total across exits and entries) have now
-found **zero profitable configurations** on this 3.5-month window. This is stronger
-evidence than before that the problem isn't a tuning-knob problem:
+Two full real-tick sweeps (18 combinations across exits and entries) found **zero**
+profitable configurations on the always-on session trigger. The 4-day NFP probe found
+a genuinely different (if still net-negative, and far too small to trust) pattern.
 
-1. **Most likely direction:** reconsider the strategy concept itself — the original
-   thesis (CLAUDE.md §2) is a stop-order grid catching *displacement* moves (news
-   spikes, session-open expansion), not "trade continuously during a 1–3 hour window and
-   hope." A news-calendar-gated deployment (only arm the grid around scheduled
-   high-impact releases) is a fundamentally different trigger condition from anything
-   tested so far and hasn't been ruled out by this sweep.
-2. Remaining un-swept knobs (lot progression, `GridLevels`, `ATR_Min/Max_USD` band,
-   `GridTTLMin`) could still be explored real-tick if there's appetite, but given how
-   uniformly negative both swept dimensions were, the marginal odds of a knob turn
-   fixing this look low.
-3. Live deployment remains **blocked** — nothing tested across either sweep beats "don't
-   trade" on this window.
+1. **Before any code investment:** extend the news-day probe to a much larger sample —
+   pull NFP (and, if a reliable source is available, FOMC) dates across 2–3 years of
+   history instead of 4 days in one quarter, and re-run the same cheap per-day backtest
+   method. This is still just picking date ranges, no EA changes, and would turn "2 of 4"
+   into a number worth trusting either way.
+2. **If that larger sample holds up profitable:** then the calendar-gated rework (new
+   EA input schema, dedicated gate, full Phase-7-style validation) is justified.
+3. **If it doesn't:** that's a strong signal the grid-on-displacement concept itself
+   doesn't have edge on this instrument/period, independent of trigger mechanism —
+   the more valuable conversation becomes whether to keep iterating on this EA at all.
+4. Remaining un-swept knobs (lot progression, `GridLevels`, `ATR_Min/Max_USD` band,
+   `GridTTLMin`) are still untested but low-priority given how uniformly negative both
+   swept dimensions were.
+5. Live deployment remains **blocked** — nothing tested so far, across any of the three
+   probes, beats "don't trade" with statistical confidence.

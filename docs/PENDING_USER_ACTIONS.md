@@ -18,30 +18,34 @@
 > (MT5's own pixel hit-testing). Entirely optional — try it whenever you're next at a
 > chart; the click handler itself is proven.
 
-## ⚠ THE one open problem before live: negative campaign P/L — two full sweeps done, both negative
+## ⚠ THE one open problem before live: negative campaign P/L — 3 probes done, one shows a hint worth chasing
 
 Run 05 baseline: **−$1,770 on $10k (−17.7%), PF 0.95, eqDD 36.6%** at production defaults.
-Two independent real-tick attacks (full detail in `docs/OPT_REPORT.md`):
+Three independent real-tick attacks so far (full detail in `docs/OPT_REPORT.md`):
 
 - **Exit sweep** (625 OHLC combos, top 2 re-validated on real ticks): **REJECTED** — both
   collapse to PF 0.84, ~70% drawdown. The OHLC "winners" were a model artifact.
-- **Entry-side sweep** (9 combos, session windows × `GridSpacingUSD`, **real ticks from
-  the start**, 2026-07-18): **every single combination lost money.** Narrowing the
-  session window made results *worse*, not better — evidence the loss isn't concentrated
-  in a chop-heavy sub-window, it's present throughout.
+- **Entry-side sweep** (9 combos, session windows × `GridSpacingUSD`, real ticks
+  throughout, 2026-07-18): **every single combination lost money.** Narrowing the
+  session window made results *worse*, not better.
+- **NFP-day probe** (n=4, real ticks, 2026-07-18): **mixed** — 2 of 4 individual NFP days
+  were genuinely profitable (PF 1.41, 1.16), a hit rate neither of the systematic sweeps
+  ever produced. Aggregate is still net negative (−$528) and n=4 is far too small to
+  trust either way — **inconclusive, not a finding.**
 
-**Conclusion: this isn't a tuning-knob problem anymore.** Eighteen real-tick-valid
-configurations across both exits and entries, zero profitable. Your direction is needed
-(see `docs/OPT_REPORT.md` §Recommended next steps) — most likely a genuine
-**strategy-concept rethink**: gate deployment on scheduled news events instead of blanket
-session windows (the original CLAUDE.md §2 displacement thesis), which is a fundamentally
-different trigger than anything tested so far. Live deployment and the demo soak stay
-**blocked** until something beats "don't trade" on real ticks.
+**Conclusion: 18 systematic configurations on the always-on trigger were uniformly
+negative — that avenue looks exhausted.** The NFP probe hints the displacement thesis
+might still have something to it, but needs a much bigger sample (2–3 years of NFP/FOMC
+dates, not 4) before it's trustworthy either way. See `docs/OPT_REPORT.md`
+§Recommended next steps for the full decision tree. Live deployment and the demo soak
+stay **blocked** until something beats "don't trade" with real statistical confidence.
 
 ## Upcoming
 
 | When | Task |
 |---|---|
-| Now | Decide: news-calendar-gated rework, explore remaining knobs (lot progression/GridLevels/ATR band), or pause |
+| Now | Decide: extend the NFP/FOMC probe to a multi-year sample (cheap, no code change) before committing to anything bigger |
+| If that holds up | Build the news-calendar-gated rework (new gate, its own validation campaign) |
+| If it doesn't | Reconsider whether this EA concept has edge here at all |
 | Optional, next time at a screen | One physical header click on the dashboard |
 | Pre-live | 1-week demo soak with `AUTO_TRADING_ENABLED=true` — blocked on the P/L fix |
