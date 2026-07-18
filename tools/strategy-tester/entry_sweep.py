@@ -127,6 +127,8 @@ def parse_report(htm_path):
         "eqdd": parse_metric(lines, "Equity Drawdown Maximal"),
         "trades": parse_metric(lines, "Total Trades"),
         "sharpe": parse_metric(lines, "Sharpe Ratio"),
+        "gross_profit": parse_metric(lines, "Gross Profit"),
+        "gross_loss": parse_metric(lines, "Gross Loss"),
     }
 
 

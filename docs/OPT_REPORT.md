@@ -194,29 +194,96 @@ day" is exactly the kind of post-hoc exclusion that should raise suspicion, not
 confidence, on n=15. This is a lead worth a narrow follow-up, not a result worth acting
 on directly.
 
+## FOMC-only exit sweep (n=15 days x 16 combos), REAL TICKS THROUGHOUT (2026-07-18)
+
+Direct follow-up to the recommendation above: does tuning `BasketTP_USD`/`BasketSL_USD`
+*specifically for FOMC-day volatility* find anything, given every exit sweep so far
+assumed the always-on trigger? Unlike Sweep 01 (OHLC model, needed real-tick
+re-validation), every probe here is already Model=4 real ticks — no shortcut-model risk.
+
+**Method** (`tools/strategy-tester/fomc_exit_sweep.py`): for each of 16
+(`BasketTP_USD`, `BasketSL_USD`) combinations — `TP` ∈ {10,15,20,25}, `SL` ∈ {6,8,10,12},
+`TrailActivate_USD`/`TrailDistance_USD` held at production defaults (8.0/4.0) to keep
+runtime manageable — ran one short real-tick probe per FOMC day (the same 15-day sample
+from the multi-year probe above), then combined properly: net profit summed directly
+across the 15 days, and profit factor recomputed from **summed Gross Profit ÷ summed
+|Gross Loss|** across all 15 days — not an average of 15 separate ratios, which would be
+statistically wrong for a ratio metric. (`TP=15/SL=10` is the production default and
+reproduces the multi-year probe's FOMC aggregate exactly: −44.95 — a useful consistency
+check that the harness is sound.)
+
+| TP | SL | Total profit | Combined PF | Trades |
+|---|---|---|---|---|
+| **20** | **10** | **+879.71** | **1.256** | 374 |
+| 20 | 8 | +535.32 | 1.118 | 501 |
+| 25 | 10 | +413.46 | 1.112 | 383 |
+| 25 | 8 | +165.25 | 1.035 | 511 |
+| 10 | 12 | +120.37 | 1.028 | 404 |
+| 20 | 12 | +29.47 | 1.006 | 413 |
+| 15 | 10 | −44.95 | 0.988 | 394 |
+| 10 | 8 | −152.32 | 0.967 | 536 |
+| 25 | 12 | −223.26 | 0.954 | 411 |
+| 10 | 10 | −230.36 | 0.938 | 401 |
+| 15 | 8 | −558.79 | 0.891 | 520 |
+| 15 | 12 | −767.97 | 0.844 | 393 |
+| 20 | 6 | −1568.23 | 0.730 | 667 |
+| 10 | 6 | −1623.78 | 0.727 | 725 |
+| 15 | 6 | −2123.38 | 0.638 | 673 |
+| 25 | 6 | −2147.53 | 0.648 | 685 |
+
+Full data: `docs/opt/fomc_exit_sweep_results.csv`.
+
+**This is the most credible result of the entire campaign — and it's still not enough to
+act on.** Two things distinguish it from every earlier "winner" that later collapsed:
+
+1. **A coherent neighborhood, not an isolated spike.** All four `SL=6` combos are
+   uniformly disastrous (−1568 to −2148 — a tight stop gets whipsawed by
+   pre-announcement noise before the real move develops), while `TP∈{20,25} × SL∈{8,10}`
+   forms a contiguous block of 4 positive results. Real effects tend to vary smoothly
+   across nearby parameters; noise-driven "winners" tend to be isolated. This is the
+   former pattern, which the OHLC exit sweep's winner (Sweep 01) was not.
+2. **No OHLC-model risk** — every number above is real-tick from the start, so there's
+   no separate validation step left to fail it the way Sweep 01's winners failed.
+
+**But — the caveats that keep this from being a finding:**
+
+- **Every FOMC day this account's real-tick history contains (15 of them) was already
+  used to pick the winner.** There is no held-out historical data left to confirm
+  against — the multiple-comparisons risk (best of 16 combinations) can't be checked
+  the normal way here. The NFP result inverting between n=4 and n=22 earlier in this
+  same campaign is a direct demonstration of how fragile small-sample "winners" can be,
+  and n=15 FOMC days is not a large sample either.
+- **This isn't deployable as-is.** `Session1`/`Session2` are time-of-day only — the EA
+  cannot gate on specific calendar dates today. Actually running "FOMC-only, TP=20/SL=10"
+  live or on demo would require real EA development (a calendar-aware gate + its own
+  validation), not just a config change.
+- FOMC dates are recalled, not independently re-verified (see multi-year probe caveat
+  above).
+
 ## Recommended next steps (user decision)
 
-Two full real-tick sweeps (18 combinations across exits and entries) found **zero**
-profitable configurations on the always-on session trigger. The NFP hypothesis, tested
-properly at n=22, is now rejected — not just unproven, actively negative. FOMC is the
-one thread left with any signal at all, and it needs to be treated with real caution
-given how the NFP result flipped between n=4 and n=22.
+Five independent real-tick attacks now: 625 exit combos (Sweep 01, OHLC + re-validated),
+9 entry combos (Sweep 02), 4-day NFP pilot, 37-day NFP+FOMC sample, 16-combo FOMC-only
+exit sweep. The always-on trigger is thoroughly exhausted (zero winners across 18+37
+configurations). The FOMC-only exit sweep produced the one genuinely credible positive
+pattern in the whole campaign — but it's built on a fully-mined 15-day sample with
+nothing held out to confirm it against.
 
-1. **If there's appetite for one more narrow, cheap test:** re-run the exit sweep
-   (`hydra_opt_01_exits`-style OHLC grid, real-tick-validate the winner) restricted to
-   FOMC-day windows only, using the existing 15-day FOMC sample as the backtest range.
-   This directly asks "does tuning exits *for this specific trigger* do anything," which
-   hasn't been tested — every exit sweep so far assumed the always-on trigger.
-2. **Otherwise:** the honest bottom line after 4 independent real-tick attacks (625 exit
-   combos, 9 entry combos, 4-day NFP pilot, 37-day NFP+FOMC sample) is that this EA, as
-   currently conceived, has **no validated profitable edge** on XAUUSD-VIP over the
-   ~16 months of history available. That's a legitimate place to stop the parameter/
-   concept search and have the harder conversation about the strategy itself, rather
-   than keep looking for a configuration that works.
+1. **The only real test left is prospective, not retrospective:** if there's appetite to
+   pursue this further, the responsible next step is tracking `BasketTP_USD=20,
+   BasketSL_USD=10` (FOMC days only) against upcoming *real* FOMC meetings going
+   forward — on demo, not live — since every historical FOMC day available has already
+   been used to find this combination. That requires building the calendar-aware gate
+   first (a real EA change, its own spec update and validation), not just re-running a
+   backtest.
+2. **Otherwise:** the honest bottom line is that the always-on-trigger version of this
+   EA has no validated profitable edge on XAUUSD-VIP over the ~16 months of available
+   history, and the one promising lead (FOMC-only) needs real forward-testing time to
+   confirm or refute — it cannot be validated further by looking backward.
 3. Remaining un-swept knobs (lot progression, `GridLevels`, `ATR_Min/Max_USD` band,
-   `GridTTLMin`) are still untested but low-priority given the pattern above.
-4. Live deployment remains **blocked** — nothing tested so far, across any probe, beats
-   "don't trade" with statistical confidence.
+   `GridTTLMin`) are still untested but low-priority given everything above.
+4. Live deployment remains **blocked** regardless — nothing tested so far beats "don't
+   trade" with the kind of confidence that survives scrutiny.
 
 1. **Before any code investment:** extend the news-day probe to a much larger sample —
    pull NFP (and, if a reliable source is available, FOMC) dates across 2–3 years of
