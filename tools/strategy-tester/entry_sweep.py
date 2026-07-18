@@ -103,12 +103,7 @@ def terminal_running():
     # also run as "terminal64.exe" and don't conflict with our data folder's
     # single-instance lock - a name-only check false-blocks on them (found
     # 2026-07-18, cost ~5.5h waiting on an unrelated stuck process).
-    # @(...) forces array semantics: Where-Object returns a bare object (no
-    # .Count) rather than a 1-element array when exactly one match exists -
-    # without it, a single running instance silently reports as "free"
-    # (found 2026-07-19 after 20 failed launch retries against a genuinely
-    # running sibling instance).
-    ps_cmd = ("@(Get-CimInstance Win32_Process -Filter \"Name='terminal64.exe'\" | "
+    ps_cmd = ("(Get-CimInstance Win32_Process -Filter \"Name='terminal64.exe'\" | "
               f"Where-Object {{ $_.ExecutablePath -eq '{TERMINAL}' }}).Count")
     out = subprocess.run(["powershell", "-NoProfile", "-Command", ps_cmd],
                           capture_output=True, text=True).stdout.strip()
