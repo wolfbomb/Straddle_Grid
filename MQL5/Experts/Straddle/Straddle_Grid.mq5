@@ -50,6 +50,11 @@ input int     MaxSpreadPoints      = 35;
 input double  MinMarginLevelPct    = 500.0;
 input double  MaxDailyLossPct     = 3.0;
 
+input group "── FOMC-Only Mode (experimental, CLAUDE.md §5.1) ──"
+input bool    FOMCOnlyMode         = false;   // additive-only: false = zero effect on gate 1
+input string  FOMCDatesCSV         = "2026.01.28,2026.03.18,2026.04.29,2026.06.17,2026.07.29,2026.09.16,2026.10.28,2026.12.09";
+input int     FOMCWindowDays       = 1;       // gate 1 also requires server date within +/- this many days of a listed date
+
 input group "── Whipsaw Guard ──"
 input int     WhipsawWindowSec     = 300;
 input int     WhipsawCooldownMin   = 60;
@@ -62,7 +67,7 @@ input bool    DashSelfTest         = false;   // synthetic dashboard battery + v
 //+------------------------------------------------------------------+
 //| ===================== GLOBALS / STATE =========================== |
 //+------------------------------------------------------------------+
-#define HYDRA_VERSION        "v2.1"          // single source of truth — dashboard header reads this
+#define HYDRA_VERSION        "v2.2"          // single source of truth — dashboard header reads this
 #define HYDRA_COMMENT_PREFIX "SIGMA.Hydra"   // order comment prefix (SIGMA convention)
 
 // Persistent global-variable keys (namespaced SIGMA.Hydra.<symbol>.<key>,
@@ -101,6 +106,11 @@ int    g_atrHandle   = INVALID_HANDLE;      // ATR(14, M5) for gate 2
 int    g_sess1Start = -1, g_sess1End = -1;  // session windows in minutes-of-day (GMT/server)
 int    g_sess2Start = -1, g_sess2End = -1;
 bool   g_sessionsValid = false;             // false = malformed input, gate 1 always fails
+
+//--- FOMC-Only Mode (CLAUDE.md §5.1, experimental 2026-07-18): additive gate-1
+//    restriction only — FOMCOnlyMode=false leaves gate 1 completely unchanged.
+datetime g_fomcDates[];                     // parsed FOMCDatesCSV, midnight-normalized
+bool     g_fomcDatesValid = false;          // false = malformed input, gate 1 always fails when mode is on
 
 //--- Grid (CLAUDE.md §7)
 datetime g_armedAt         = 0;             // deployment time = TTL anchor; recovered on restart
@@ -176,6 +186,18 @@ int OnInit()
                      ParseSessionWindow(Session2, g_sess2Start, g_sess2End);
    if(!g_sessionsValid)
       HydraLog(StringFormat("WARNING: malformed session window ('%s' / '%s') — gate 1 will always fail", Session1, Session2));
+
+   // FOMC-Only Mode (CLAUDE.md §5.1): parse once, same fail-closed pattern as
+   // sessions. Only matters when FOMCOnlyMode=true — otherwise gate 1 ignores it.
+   if(FOMCOnlyMode)
+     {
+      g_fomcDatesValid = ParseFOMCDates(FOMCDatesCSV, g_fomcDates);
+      if(!g_fomcDatesValid)
+         HydraLog(StringFormat("WARNING: malformed FOMCDatesCSV ('%s') — gate 1 will always fail while FOMCOnlyMode=true", FOMCDatesCSV));
+      else
+         HydraLog(StringFormat("FOMC-Only Mode ENABLED: %d date(s) loaded, window +/-%d day(s)",
+                               ArraySize(g_fomcDates), FOMCWindowDays));
+     }
 
    // Gate 2: ATR(14, M5) indicator handle
    g_atrHandle = iATR(_Symbol, PERIOD_M5, 14);
@@ -578,7 +600,10 @@ void LogGateStatusOnChange(const bool pass, const string failReason)
       HydraLog("gates FAIL — " + failReason);
   }
 
-//--- Gate 1: server time inside Session1 or Session2 (windows treated as GMT per spec)
+//--- Gate 1: server time inside Session1 or Session2 (windows treated as GMT per spec).
+//    CLAUDE.md §5.1: when FOMCOnlyMode=true, ALSO requires the current server date be
+//    within +/-FOMCWindowDays of a listed FOMC date — a stricter intersection on top of
+//    the unchanged time-of-day check, never a replacement for it.
 bool GateSession(string &reason)
   {
    if(!g_sessionsValid)
@@ -586,11 +611,24 @@ bool GateSession(string &reason)
       reason = StringFormat("malformed session input ('%s' / '%s')", Session1, Session2);
       return(false);
      }
+   if(FOMCOnlyMode)
+     {
+      if(!g_fomcDatesValid)
+        {
+         reason = StringFormat("malformed FOMCDatesCSV ('%s')", FOMCDatesCSV);
+         return(false);
+        }
+      if(!IsWithinFOMCWindow(TimeCurrent()))
+        {
+         reason = "outside FOMC-only window (FOMCOnlyMode)";
+         return(false);
+        }
+     }
    MqlDateTime dt;
    TimeToStruct(TimeCurrent(), dt);
    int nowMin = dt.hour * 60 + dt.min;
-   if(nowMin >= g_sess1Start && nowMin < g_sess1End) { reason = "in " + Session1; return(true); }
-   if(nowMin >= g_sess2Start && nowMin < g_sess2End) { reason = "in " + Session2; return(true); }
+   if(nowMin >= g_sess1Start && nowMin < g_sess1End) { reason = "in " + Session1 + (FOMCOnlyMode ? " (FOMC window)" : ""); return(true); }
+   if(nowMin >= g_sess2Start && nowMin < g_sess2End) { reason = "in " + Session2 + (FOMCOnlyMode ? " (FOMC window)" : ""); return(true); }
    reason = StringFormat("server %02d:%02d outside %s and %s", dt.hour, dt.min, Session1, Session2);
    return(false);
   }
@@ -1287,11 +1325,20 @@ void UpdateDashboard()
    ObjectSetInteger(0, DASH_PREFIX + "GateFailName", OBJPROP_COLOR, clrRed);
    VerifyTextProp("GateFailName", DASH_PREFIX + "GateFailName", failText);
 
-   // Row: Session
+   // Row: Session (CLAUDE.md §5.1: shows FOMC-only mode + next date when active)
    MqlDateTime dt;
    TimeToStruct(TimeCurrent(), dt);
-   SetRow("Session", StringFormat("Sess: %s / %s  now %02d:%02d:%02d",
-                                  Session1, Session2, dt.hour, dt.min, dt.sec), clrGainsboro);
+   string sessionTxt;
+   if(FOMCOnlyMode)
+     {
+      string nextFomc = NextFOMCDateStr(TimeCurrent());
+      sessionTxt = StringFormat("FOMC-only  next %s  now %02d:%02d:%02d",
+                                nextFomc == "" ? "n/a" : nextFomc, dt.hour, dt.min, dt.sec);
+     }
+   else
+      sessionTxt = StringFormat("Sess: %s / %s  now %02d:%02d:%02d",
+                                Session1, Session2, dt.hour, dt.min, dt.sec);
+   SetRow("Session", sessionTxt, clrGainsboro);
 
    // Row: Spread / ATR
    long   spreadPts = SymbolInfoInteger(_Symbol, SYMBOL_SPREAD);
@@ -1697,6 +1744,57 @@ bool ParseSessionWindow(const string window, int &startMin, int &endMin)
    startMin = s;
    endMin   = e;
    return(true);
+  }
+
+//--- Parse comma-separated "YYYY.MM.DD" dates (CLAUDE.md §5.1) into
+//    midnight-normalized datetimes. False on any malformed entry (fail
+//    closed, same pattern as ParseSessionWindow/ParseLotProgression).
+bool ParseFOMCDates(const string csv, datetime &dates[])
+  {
+   string parts[];
+   int n = StringSplit(csv, ',', parts);
+   if(n <= 0)
+      return(false);
+   ArrayResize(dates, n);
+   for(int i = 0; i < n; i++)
+     {
+      string s = parts[i];
+      StringTrimLeft(s);
+      StringTrimRight(s);
+      datetime d = StringToTime(s);
+      if(d <= 0)
+         return(false);
+      dates[i] = d;
+     }
+   return(true);
+  }
+
+//--- True if 'now' falls within +/-FOMCWindowDays (whole calendar days, date-only)
+//    of any parsed FOMC date. Mirrors the day-before/day-of/day-after backtest
+//    window in docs/OPT_REPORT.md's FOMC-only exit sweep.
+bool IsWithinFOMCWindow(const datetime now)
+  {
+   long nowDay = (long)(now / 86400);
+   for(int i = 0; i < ArraySize(g_fomcDates); i++)
+     {
+      long fomcDay = (long)(g_fomcDates[i] / 86400);
+      if(MathAbs(nowDay - fomcDay) <= FOMCWindowDays)
+         return(true);
+     }
+   return(false);
+  }
+
+//--- Nearest FOMC date at/after 'now' for dashboard display; "" if the list is
+//    exhausted or invalid (dashboard shows a fallback in that case).
+string NextFOMCDateStr(const datetime now)
+  {
+   if(!g_fomcDatesValid)
+      return("");
+   datetime best = 0;
+   for(int i = 0; i < ArraySize(g_fomcDates); i++)
+      if(g_fomcDates[i] >= now && (best == 0 || g_fomcDates[i] < best))
+         best = g_fomcDates[i];
+   return(best == 0 ? "" : TimeToString(best, TIME_DATE));
   }
 
 //--- Snap a price to the symbol tick size, then to digits

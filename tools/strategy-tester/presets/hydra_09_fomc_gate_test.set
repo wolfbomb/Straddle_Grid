@@ -1,0 +1,27 @@
+; Hydra scenario 09 — FOMC-Only Mode gate sanity check (CLAUDE.md §5.1)
+AUTO_TRADING_ENABLED=true
+MagicNumber=20260713
+GridLevels=9
+GridSpacingUSD=0.70
+FirstLevelOffsetUSD=0.50
+LotProgressionCSV=0.01,0.01,0.02,0.02,0.02,0.03,0.04,0.04,0.05
+OCO_Mode=true
+GridTTLMin=45
+BasketTP_USD=20.0
+BasketSL_USD=10.0
+TrailActivate_USD=8.0
+TrailDistance_USD=4.0
+Session1=07:00-10:00
+Session2=12:00-15:00
+ATR_Min_USD=1.5
+ATR_Max_USD=8.0
+MaxSpreadPoints=35
+MinMarginLevelPct=500.0
+MaxDailyLossPct=3.0
+WhipsawWindowSec=300
+WhipsawCooldownMin=60
+MaxWhipsawsPerDay=2
+FOMCOnlyMode=true
+FOMCDatesCSV=2025.09.17
+FOMCWindowDays=1
+DashSelfTest=false

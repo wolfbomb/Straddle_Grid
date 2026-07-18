@@ -90,6 +90,60 @@ Evaluated in `IDLE` before grid deployment. All five must pass.
 | 4 | **Exposure** | No existing Hydra positions/orders; account margin level > `MinMarginLevel`; daily loss limit not breached. | Margin 500%, DailyLoss 3% |
 | 5 | **Master Switch** | `AUTO_TRADING_ENABLED == true` AND terminal AutoTrading button enabled. | `false` |
 
+### 5.1 FOMC-Only Mode (experimental, added 2026-07-18)
+
+**Background:** an extensive optimization campaign (`docs/OPT_REPORT.md`) found the
+always-on session trigger has no validated profitable edge on XAUUSD-VIP over the
+available real-tick history (2024.02–2025.12). The one credible lead — a coherent,
+non-isolated positive result, not an artifact — was restricting deployment to FOMC
+decision days specifically, with `BasketTP_USD=20, BasketSL_USD=10` instead of the
+production defaults. Every historical FOMC day available was used to find this
+combination, so it **cannot be validated further by backtesting** — the only honest
+test left is prospective (tracking real future FOMC meetings on demo). This mode exists
+to run that forward test without touching the EA's default behavior at all.
+
+**Design (additive only — zero effect when disabled):**
+- New input `FOMCOnlyMode` (bool, default `false`). When `false`, gate 1 behaves exactly
+  as documented above with no change whatsoever.
+- New input `FOMCDatesCSV`: comma-separated `YYYY.MM.DD` list of known FOMC decision
+  days (the announcement + press-conference day, second day of each 2-day meeting).
+  Malformed entries fail closed (gate 1 always fails), same pattern as malformed
+  `Session1`/`Session2`.
+- New input `FOMCWindowDays` (default `1`): when `FOMCOnlyMode=true`, gate 1 requires
+  the current server **date** to be within ±`FOMCWindowDays` of at least one listed
+  FOMC date, **in addition to** the existing, unchanged `Session1`/`Session2`
+  time-of-day check. This exactly mirrors the day-before/day-of/day-after backtest
+  window used in `docs/OPT_REPORT.md`'s FOMC-only exit sweep — live behavior matches
+  what was actually tested, not a new invented window.
+- 2026 FOMC dates (verified 2026-07-18 against federalreserve.gov):
+  `2026.01.28, 2026.03.18, 2026.04.29, 2026.06.17, 2026.07.29, 2026.09.16, 2026.10.28,
+  2026.12.09`.
+- **Deployment note:** when running this mode, set `BasketTP_USD=20`, `BasketSL_USD=10`
+  (the tested combination) — these stay ordinary existing inputs, not hardcoded, so the
+  mode only controls *when* the grid arms, not the exit parameters.
+- Dashboard: the Session row shows `FOMC-only` and the next upcoming date from
+  `FOMCDatesCSV` when the mode is active, so the tracking state is visible at a glance.
+- **This mode does not touch, weaken, or bypass any other gate, the Whipsaw Guard, or
+  the master switch** — it only adds a stricter *intersection* condition to gate 1.
+
+**Deployment mechanism (live 2026-07-19):** the shared MT5 terminal on this machine is
+under heavy, frequent contention from sibling SIGMA-suite projects (repeatedly observed
+2026-07-18/19), so the EA is **not** left attached continuously between now and
+December. Instead, `tools/fomc-live/` holds the deployment scripts and 8 Windows
+Scheduled Tasks (`Hydra_FOMC_Attach_<date>` / `Hydra_FOMC_Detach_<date>`, `schtasks`,
+06:00 local) attach it ~1 day before each remaining 2026 FOMC date and detach ~1 day
+after, freeing the terminal for sibling use the rest of the time. Every run appends to
+`tools/fomc-live/tracking.log`. If `Straddle_Grid.mq5` changes before the next scheduled
+date, recompile the data-folder copy manually — the scheduled tasks do not recompile.
+
+**Forward-tracking log:**
+| Date | Attach task | Deployed? | Outcome |
+|---|---|---|---|
+| 2026.07.29 | `Hydra_FOMC_Attach_07-28-2026` | _pending_ | _pending_ |
+| 2026.09.16 | `Hydra_FOMC_Attach_09-15-2026` | _pending_ | _pending_ |
+| 2026.10.28 | `Hydra_FOMC_Attach_10-27-2026` | _pending_ | _pending_ |
+| 2026.12.09 | `Hydra_FOMC_Attach_12-08-2026` | _pending_ | _pending_ |
+
 ---
 
 ## 6. Whipsaw Guard (Kill Switch) — MANDATORY
@@ -166,6 +220,11 @@ input double  ATR_Max_USD          = 8.0;
 input int     MaxSpreadPoints      = 35;
 input double  MinMarginLevelPct    = 500.0;
 input double  MaxDailyLossPct      = 3.0;
+
+input group "── FOMC-Only Mode (experimental, §5.1) ──"
+input bool    FOMCOnlyMode         = false;   // additive-only: false = zero effect on gate 1
+input string  FOMCDatesCSV         = "2026.01.28,2026.03.18,2026.04.29,2026.06.17,2026.07.29,2026.09.16,2026.10.28,2026.12.09";
+input int     FOMCWindowDays       = 1;       // gate 1 also requires server date within +/- this many days of a listed date
 
 input group "── Whipsaw Guard ──"
 input int     WhipsawWindowSec     = 300;
