@@ -195,7 +195,7 @@ def main():
     with open(START_INI, "w", encoding="ascii") as f:
         f.write(
             "[Experts]\nEnabled=1\nAllowLiveTrading=1\nAllowDllImport=0\n\n"
-            f"[StartUp]\nExpert=SIGMA\\Straddle_Grid\nExpertParameters={PRESET}\n"
+            f"[StartUp]\nExpert=Straddle\\Straddle_Grid\nExpertParameters={PRESET}\n"
             f"Symbol={SYMBOL}\nPeriod=M1\n")
     log("preset + start config written")
 

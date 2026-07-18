@@ -39,7 +39,7 @@
 
 **Prompt:**
 
-Create `MQL5/Experts/SIGMA/Straddle_Grid.mq5` as a single-file EA organized into the
+Create `MQL5/Experts/Straddle/Straddle_Grid.mq5` as a single-file EA organized into the
 commented sections mandated by CLAUDE.md §9:
 `Inputs → Globals/State → OnInit (state recovery) → OnTick (state dispatch) → Gates → GridDeploy → WhipsawGuard → BasketManager → Dashboard → Utils`.
 

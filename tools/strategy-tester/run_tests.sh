@@ -155,7 +155,7 @@ if [ "$PLATFORM" = windows ]; then
     # Data folder: the repo root itself when MT5 runs portable from it
     # (MQL5\ lives next to terminal64.exe), else set DATADIR=... manually.
     DATADIR="${DATADIR:-}"
-    if [ -z "$DATADIR" ] && [ -d "$REPO_ROOT/MQL5/Experts/SIGMA" ]; then
+    if [ -z "$DATADIR" ] && [ -d "$REPO_ROOT/MQL5/Experts/Straddle" ]; then
         DATADIR="$REPO_ROOT"
     fi
     [ -n "$DATADIR" ] && [ -d "$DATADIR/MQL5" ] \
@@ -173,8 +173,8 @@ if [ "$PLATFORM" = windows ]; then
     [ -n "$TERMINAL" ] && [ -f "$TERMINAL" ] \
         || fail "terminal64.exe not found. Set TERMINAL=/d/path/to/terminal64.exe and rerun."
 
-    [ -f "$DATADIR/MQL5/Experts/SIGMA/Straddle_Grid.ex5" ] \
-        || fail "Compiled EA not found at MQL5/Experts/SIGMA/Straddle_Grid.ex5 — compile in MetaEditor first."
+    [ -f "$DATADIR/MQL5/Experts/Straddle/Straddle_Grid.ex5" ] \
+        || fail "Compiled EA not found at MQL5/Experts/Straddle/Straddle_Grid.ex5 — compile in MetaEditor first."
 
     check_common_ini
 
@@ -238,8 +238,8 @@ DATA_DIR="$MT5_DIR_C"          # Mac build runs portable: data folder = install 
 [ -d "$DRIVE_C" ]        || fail "Wine prefix not found at: $WINEPREFIX_DIR  (set WINEPREFIX_DIR=... and rerun)"
 [ -d "$DATA_DIR/MQL5" ]  || fail "MQL5 folder not found under: $DATA_DIR"
 
-if [ ! -f "$DATA_DIR/MQL5/Experts/SIGMA/Straddle_Grid.ex5" ]; then
-    echo "[WARN] Compiled EA not found at MQL5/Experts/SIGMA/Straddle_Grid.ex5"
+if [ ! -f "$DATA_DIR/MQL5/Experts/Straddle/Straddle_Grid.ex5" ]; then
+    echo "[WARN] Compiled EA not found at MQL5/Experts/Straddle/Straddle_Grid.ex5"
     echo "       Compile Straddle_Grid.mq5 in MetaEditor first."
     exit 1
 fi

@@ -21,7 +21,7 @@ REM --------------------------------------------------------------
 
 for %%I in ("%~dp0..\..") do set "REPO_ROOT=%%~fI"
 
-if not defined DATADIR if exist "%REPO_ROOT%\MQL5\Experts\SIGMA" set "DATADIR=%REPO_ROOT%"
+if not defined DATADIR if exist "%REPO_ROOT%\MQL5\Experts\Straddle" set "DATADIR=%REPO_ROOT%"
 if not defined DATADIR (
     echo [ERROR] MT5 data folder not auto-detected.
     echo         Edit DATADIR at the top of this script
@@ -42,8 +42,8 @@ REM lives inside it (repo-as-data-folder layout).
 set "PORTABLE="
 if /I "%TERMINAL%"=="%DATADIR%\terminal64.exe" set "PORTABLE=/portable"
 
-if not exist "%DATADIR%\MQL5\Experts\SIGMA\Straddle_Grid.ex5" (
-    echo [WARN] Compiled EA not found at MQL5\Experts\SIGMA\Straddle_Grid.ex5
+if not exist "%DATADIR%\MQL5\Experts\Straddle\Straddle_Grid.ex5" (
+    echo [WARN] Compiled EA not found at MQL5\Experts\Straddle\Straddle_Grid.ex5
     echo        Compile Straddle_Grid.mq5 in MetaEditor first, then rerun.
     pause & exit /b 1
 )

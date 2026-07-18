@@ -136,7 +136,7 @@ the candle only reached one side, shrink `FirstLevelOffsetUSD` in
   init line.
 
 - **Terminal opens but no test runs:** MT5 was already running, or the `Expert=` path
-  doesn't match where the EA compiled (`MQL5\Experts\SIGMA\Straddle_Grid.ex5`).
+  doesn't match where the EA compiled (`MQL5\Experts\Straddle\Straddle_Grid.ex5`).
 - **"history not synchronized" / short report:** let the run repeat once (tick download),
   or open an XAUUSD-VIP chart in MT5 first and scroll back through the range.
 - **Whipsaw never fires:** wrong day (one-sided move), or offsets too wide — see above.

@@ -194,8 +194,10 @@ Straddle_Grid/
 ├── PHASE_PROMPTS.md           ← phased build prompts for Claude Code
 ├── .gitignore                 ← MQL5 pattern (ex5, logs, tester artifacts)
 ├── MQL5/
-│   └── Experts/SIGMA/
-│       └── Straddle_Grid.mq5  ← single-file EA (SIGMA convention)
+│   └── Experts/Straddle/
+│       └── Straddle_Grid.mq5  ← single-file EA (per-EA folder; renamed from the shared
+│                                  `SIGMA/` folder 2026-07-18 to avoid collisions with
+│                                  sibling SIGMA-suite EAs in the same MT5 terminal)
 └── docs/
     └── CHECKLIST.md           ← pre-deploy verification checklist
 ```
