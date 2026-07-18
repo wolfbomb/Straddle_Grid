@@ -152,11 +152,71 @@ is still negative. What it *does* show is that the day-to-day variance on known
 high-impact days looks qualitatively different from the uniform failure seen everywhere
 else tested. That's a reason to look further, not a reason to build the full gate yet.
 
+## Multi-year NFP/FOMC probe (n=37), REAL TICKS (2026-07-18)
+
+The n=4 NFP pilot above was too small to trust — extended the same method (short
+independent real-tick backtests bracketing one event day, no EA code change) to a much
+bigger sample via `tools/strategy-tester/news_day_probe_multiyear.py`: every NFP Friday
+and FOMC decision day from **2024.03 through 2025.12** (production defaults, unchanged).
+
+**Hard constraint discovered:** real tick history for XAUUSD-VIP on this account only
+goes back to **2024.02.20** — 2023 and early 2024 are simply unavailable, capping how far
+back this method can reach. 3 dates were auto-skipped for predating this; 37 ran.
+
+⚠ **FOMC dates are recalled from the published Federal Reserve schedule for 2024–2025,
+not independently re-verified against an official source in this session** — same
+caveat class as the NFP/FOMC inclusion note in run 05. Cross-check against
+federalreserve.gov before treating these as ground truth for any real decision. NFP
+dates are exact (first Friday of the month, pure calendar rule).
+
+Full data: `docs/opt/news_day_probe_multiyear_results.csv`.
+
+| Category | n | Wins | Win rate | Total | Mean/day |
+|---|---|---|---|---|---|
+| NFP | 22 | 8 | 36% | **−1,752.05** | −79.64 |
+| FOMC | 15 | 8 | 53% | **−44.95** | −3.00 |
+| **Combined** | **37** | **16** | **43%** | **−1,797.00** | −48.57 |
+
+**The NFP "hint" from the n=4 pilot did not survive a bigger sample — it reversed.**
+Win rate dropped from 50% (2/4) to 36% (8/22), and the aggregate is solidly negative
+(−$1,752 over 22 real days, a similar magnitude of damage per unit time to the always-on
+sweeps). This is worth stating plainly as a lesson from this whole campaign: a 4-point
+sample said "maybe," a 22-point sample said "no." Small samples in this kind of testing
+are not just imprecise, they can point the wrong direction entirely.
+
+**FOMC looks genuinely different, but is not a validated edge.** Near-breakeven in
+aggregate (mean −$3/day, essentially flat, not clearly losing like everything else
+tested), and a 53% win rate — the best hit rate found anywhere in this entire campaign.
+However: excluding the single worst day (2025.10.29, −$813.50) flips the remaining 14
+days solidly positive (total +$768.55, mean +$54.90/day) — meaning the near-breakeven
+result is **fragile to one outlier**, and "the result looks good if I drop the worst
+day" is exactly the kind of post-hoc exclusion that should raise suspicion, not
+confidence, on n=15. This is a lead worth a narrow follow-up, not a result worth acting
+on directly.
+
 ## Recommended next steps (user decision)
 
 Two full real-tick sweeps (18 combinations across exits and entries) found **zero**
-profitable configurations on the always-on session trigger. The 4-day NFP probe found
-a genuinely different (if still net-negative, and far too small to trust) pattern.
+profitable configurations on the always-on session trigger. The NFP hypothesis, tested
+properly at n=22, is now rejected — not just unproven, actively negative. FOMC is the
+one thread left with any signal at all, and it needs to be treated with real caution
+given how the NFP result flipped between n=4 and n=22.
+
+1. **If there's appetite for one more narrow, cheap test:** re-run the exit sweep
+   (`hydra_opt_01_exits`-style OHLC grid, real-tick-validate the winner) restricted to
+   FOMC-day windows only, using the existing 15-day FOMC sample as the backtest range.
+   This directly asks "does tuning exits *for this specific trigger* do anything," which
+   hasn't been tested — every exit sweep so far assumed the always-on trigger.
+2. **Otherwise:** the honest bottom line after 4 independent real-tick attacks (625 exit
+   combos, 9 entry combos, 4-day NFP pilot, 37-day NFP+FOMC sample) is that this EA, as
+   currently conceived, has **no validated profitable edge** on XAUUSD-VIP over the
+   ~16 months of history available. That's a legitimate place to stop the parameter/
+   concept search and have the harder conversation about the strategy itself, rather
+   than keep looking for a configuration that works.
+3. Remaining un-swept knobs (lot progression, `GridLevels`, `ATR_Min/Max_USD` band,
+   `GridTTLMin`) are still untested but low-priority given the pattern above.
+4. Live deployment remains **blocked** — nothing tested so far, across any probe, beats
+   "don't trade" with statistical confidence.
 
 1. **Before any code investment:** extend the news-day probe to a much larger sample —
    pull NFP (and, if a reliable source is available, FOMC) dates across 2–3 years of
