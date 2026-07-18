@@ -67,7 +67,7 @@ input bool    DashSelfTest         = false;   // synthetic dashboard battery + v
 //+------------------------------------------------------------------+
 //| ===================== GLOBALS / STATE =========================== |
 //+------------------------------------------------------------------+
-#define HYDRA_VERSION        "v2.2"          // single source of truth — dashboard header reads this
+#define HYDRA_VERSION        "v2.3"          // single source of truth — dashboard header reads this
 #define HYDRA_COMMENT_PREFIX "SIGMA.Hydra"   // order comment prefix (SIGMA convention)
 
 // Persistent global-variable keys (namespaced SIGMA.Hydra.<symbol>.<key>,
@@ -78,6 +78,8 @@ input bool    DashSelfTest         = false;   // synthetic dashboard battery + v
 #define GV_DAY_STAMP       "day_stamp"       // server day the daily anchors belong to
 #define GV_DAY_BALANCE     "day_balance"     // balance snapshot at server-day start (gate 4)
 #define GV_TRAIL_FLOOR     "trail_floor"     // active trail floor (0 = trailing not active)
+#define GV_DASH_X          "dash_x"          // dragged panel position (v2.3), survives restart
+#define GV_DASH_Y          "dash_y"
 
 #define POST_EXIT_COOLDOWN_SEC 60            // basket-exit cooldown (CLAUDE.md §7, v1.9)
 
@@ -128,11 +130,11 @@ bool     g_ocoCleanupPending = false;       // opposite-side deletion outstandin
 bool     g_trailActive = false;             // trailing engaged for the current basket
 double   g_trailFloor  = 0.0;               // locked profit floor (ratchets up only)
 
-//--- Dashboard (Phase 8)
+//--- Dashboard (Phase 8; draggable added v2.3 — CLAUDE.md §10.1)
 #define DASH_PREFIX     "SIGMA.Hydra.Dash."
-#define DASH_X          8
-#define DASH_Y          20                  // offset down a bit to reduce overlap with the
-                                             // terminal's native top-left symbol/price label
+#define DASH_X_DEFAULT  8                   // first-run position; offset down a bit to
+#define DASH_Y_DEFAULT  20                  // reduce overlap with the terminal's native
+                                             // top-left symbol/price label
 #define DASH_WIDTH      280
 #define DASH_HEADER_H   24
 #define DASH_ROW_H      16
@@ -141,6 +143,8 @@ double   g_trailFloor  = 0.0;               // locked profit floor (ratchets up 
 #define DASH_FONTSIZE   8
 bool     g_dashCollapsed = false;           // default expanded (CLAUDE.md §10.1)
 bool     g_dashBuilt     = false;           // objects created at least once this session
+int      g_dashX = DASH_X_DEFAULT;          // current panel position — mutable (draggable),
+int      g_dashY = DASH_Y_DEFAULT;          // loaded from GV_DASH_X/Y in OnInit, persists across restarts
 
 //--- Dashboard self-test (design-doc addendum 2026-07-17; DashSelfTest input)
 bool     g_selfTestDone  = false;           // synthetic battery runs exactly once per test
@@ -205,6 +209,11 @@ int OnInit()
       HydraLog("WARNING: iATR(14,M5) handle creation failed — gate 2 will fail until available");
 
    RecoverState();
+
+   // Restore a dragged panel position (CLAUDE.md §10.1, v2.3); falls back to the
+   // first-run default if never dragged (or GV cleared).
+   g_dashX = (int)GVGet(GV_DASH_X, DASH_X_DEFAULT);
+   g_dashY = (int)GVGet(GV_DASH_Y, DASH_Y_DEFAULT);
 
    BuildDashboard();     // Phase 8: panel appears immediately, before the first tick
    UpdateDashboard();
@@ -1097,16 +1106,19 @@ void DeleteSameDirectionPendings()
 
 //+------------------------------------------------------------------+
 //| ======================== DASHBOARD ============================== |
-//| Phase 8: collapsible read-only panel per CLAUDE.md §10.1. Header  |
-//| sources its version from HYDRA_VERSION — never hardcode it twice. |
-//| No trade buttons anywhere (SIGMA safety convention: the only      |
-//| master switch is AUTO_TRADING_ENABLED + the terminal button).     |
+//| Phase 8: collapsible, draggable (v2.3), read-only panel per        |
+//| CLAUDE.md §10.1. Header sources its version from HYDRA_VERSION —   |
+//| never hardcode it twice. No trade buttons anywhere (SIGMA safety   |
+//| convention: the only master switch is AUTO_TRADING_ENABLED + the  |
+//| terminal button).                                                  |
 //|                                                                    |
 //| Objects are created once (EnsureRect/EnsureLabel are idempotent)  |
 //| and every OnTick() call only updates their text/color properties  |
 //| — no per-tick delete+recreate. BuildDashboard() is only called on |
-//| init, on a collapse/expand toggle (geometry changes), and on a    |
-//| CHARTEVENT_CHART_CHANGE (timeframe switch) as a safety rebuild.   |
+//| init, on a collapse/expand toggle or drag (geometry changes), and |
+//| on a CHARTEVENT_CHART_CHANGE (timeframe switch) as a safety       |
+//| rebuild. Dragged position persists via GV_DASH_X/Y (restart-safe);|
+//| collapse state does not (resets to expanded on EA reload).        |
 //+------------------------------------------------------------------+
 
 //--- Accent color per state (CLAUDE.md §10.1): gray IDLE, blue ARMED,
@@ -1189,32 +1201,41 @@ void SetRowVisible(const string rowKey, const bool visible)
   }
 
 //--- Create every dashboard object exactly once (idempotent) and apply the
-//    current collapsed/expanded geometry. Safe to call repeatedly.
+//    current collapsed/expanded geometry + current (possibly dragged)
+//    position. Safe to call repeatedly.
 void BuildDashboard()
   {
    int panelH = g_dashCollapsed ? DASH_HEADER_H : DASH_HEADER_H + DASH_ROW_H * DASH_ROWS;
 
-   EnsureRect(DASH_PREFIX + "BG", DASH_X, DASH_Y, DASH_WIDTH, panelH, C'18,18,18', C'55,55,55', 0);
-   EnsureRect(DASH_PREFIX + "Header", DASH_X, DASH_Y, DASH_WIDTH, DASH_HEADER_H,
+   EnsureRect(DASH_PREFIX + "BG", g_dashX, g_dashY, DASH_WIDTH, panelH, C'18,18,18', C'55,55,55', 0);
+
+   // Header: the drag handle. SELECTABLE so the user can click-and-drag it anywhere on
+   // the chart; the collapse toggle lives on the separate CollapseBtn below instead, so
+   // a plain click never fights with a drag gesture.
+   string headerName = DASH_PREFIX + "Header";
+   EnsureRect(headerName, g_dashX, g_dashY, DASH_WIDTH, DASH_HEADER_H,
              DashAccentColor(), DashAccentColor(), 1);
-   EnsureLabel(DASH_PREFIX + "HeaderText", DASH_X + 6, DASH_Y + 5, clrWhite, 2);
+   ObjectSetInteger(0, headerName, OBJPROP_SELECTABLE, true);
+
+   EnsureLabel(DASH_PREFIX + "HeaderText", g_dashX + 6, g_dashY + 5, clrWhite, 2);
+   EnsureLabel(DASH_PREFIX + "CollapseBtn", g_dashX + DASH_WIDTH - 16, g_dashY + 5, clrWhite, 3);
 
    string rowKeys[DASH_ROWS] =
      {
       "State","Auto","Gates","Session","SpreadATR","Grid","BasketPL","Targets","Whipsaw","Expiry"
      };
-   int y = DASH_Y + DASH_HEADER_H;
+   int y = g_dashY + DASH_HEADER_H;
    for(int i = 0; i < DASH_ROWS; i++)
      {
       int rowY = y + i * DASH_ROW_H + 2;
       if(rowKeys[i] == "Gates")
         {
          for(int g = 0; g < GATE_COUNT; g++)
-            EnsureLabel(DASH_PREFIX + "Gate" + IntegerToString(g), DASH_X + 6 + g * 14, rowY, clrGray, 3);
-         EnsureLabel(DASH_PREFIX + "GateFailName", DASH_X + 6 + GATE_COUNT * 14 + 6, rowY, clrGray, 3);
+            EnsureLabel(DASH_PREFIX + "Gate" + IntegerToString(g), g_dashX + 6 + g * 14, rowY, clrGray, 3);
+         EnsureLabel(DASH_PREFIX + "GateFailName", g_dashX + 6 + GATE_COUNT * 14 + 6, rowY, clrGray, 3);
         }
       else
-         EnsureLabel(DASH_PREFIX + "Row_" + rowKeys[i], DASH_X + 6, rowY, clrGainsboro, 3);
+         EnsureLabel(DASH_PREFIX + "Row_" + rowKeys[i], g_dashX + 6, rowY, clrGainsboro, 3);
       SetRowVisible(rowKeys[i], !g_dashCollapsed);
      }
 
@@ -1282,9 +1303,13 @@ void UpdateDashboard()
    ObjectSetInteger(0, DASH_PREFIX + "Header", OBJPROP_COLOR, accent);
    VerifyColorProp("Header", DASH_PREFIX + "Header", OBJPROP_BGCOLOR, accent);
    VerifyColorProp("Header", DASH_PREFIX + "Header", OBJPROP_COLOR, accent);
-   string headerTxt = StringFormat("SIGMA Hydra %s  %s", HYDRA_VERSION, g_dashCollapsed ? "▲" : "▼");
+   string headerTxt = StringFormat("SIGMA Hydra %s", HYDRA_VERSION);
    ObjectSetString(0, DASH_PREFIX + "HeaderText", OBJPROP_TEXT, headerTxt);
    VerifyTextProp("HeaderText", DASH_PREFIX + "HeaderText", headerTxt);
+
+   string collapseGlyph = g_dashCollapsed ? "▲" : "▼";
+   ObjectSetString(0, DASH_PREFIX + "CollapseBtn", OBJPROP_TEXT, collapseGlyph);
+   VerifyTextProp("CollapseBtn", DASH_PREFIX + "CollapseBtn", collapseGlyph);
 
    if(g_dashCollapsed)
       return;   // body rows are hidden — nothing else to update
@@ -1421,14 +1446,19 @@ void RemoveDashboard()
 
 void OnChartEvent(const int id, const long &lparam, const double &dparam, const string &sparam)
   {
-   if(id == CHARTEVENT_OBJECT_CLICK &&
-      (sparam == DASH_PREFIX + "Header" || sparam == DASH_PREFIX + "HeaderText"))
+   if(id == CHARTEVENT_OBJECT_CLICK && sparam == DASH_PREFIX + "CollapseBtn")
      {
       g_dashCollapsed = !g_dashCollapsed;
       BuildDashboard();
       UpdateDashboard();
       ObjectSetInteger(0, sparam, OBJPROP_SELECTED, false);   // click shouldn't leave it "selected"
       ChartRedraw(0);
+      return;
+     }
+   if(id == CHARTEVENT_OBJECT_DRAG && sparam == DASH_PREFIX + "Header")
+     {
+      DragDashboardTo((int)ObjectGetInteger(0, sparam, OBJPROP_XDISTANCE),
+                      (int)ObjectGetInteger(0, sparam, OBJPROP_YDISTANCE));
       return;
      }
    if(id == CHARTEVENT_CHART_CHANGE)
@@ -1441,6 +1471,35 @@ void OnChartEvent(const int id, const long &lparam, const double &dparam, const 
       BuildDashboard();
       UpdateDashboard();
      }
+  }
+
+//--- Apply a new (dragged) panel position: clamp to stay fully on-chart and
+//    below the native OHLC label, rebuild every child object there, and
+//    persist so it survives a restart (CLAUDE.md §10.1, v2.3).
+void DragDashboardTo(int newX, int newY)
+  {
+   int panelH = g_dashCollapsed ? DASH_HEADER_H : DASH_HEADER_H + DASH_ROW_H * DASH_ROWS;
+   long chartW = ChartGetInteger(0, CHART_WIDTH_IN_PIXELS, 0);
+   long chartH = ChartGetInteger(0, CHART_HEIGHT_IN_PIXELS, 0);
+
+   if(newX < 0)
+      newX = 0;
+   if(newY < 18)                                 // stay below the terminal's native OHLC label
+      newY = 18;
+   if(chartW > 0 && newX + DASH_WIDTH > (int)chartW)
+      newX = (int)chartW - DASH_WIDTH;
+   if(chartH > 0 && newY + panelH > (int)chartH)
+      newY = (int)chartH - panelH;
+
+   g_dashX = newX;
+   g_dashY = newY;
+   GVSet(GV_DASH_X, g_dashX);
+   GVSet(GV_DASH_Y, g_dashY);
+
+   BuildDashboard();
+   UpdateDashboard();
+   ObjectSetInteger(0, DASH_PREFIX + "Header", OBJPROP_SELECTED, false);
+   ChartRedraw(0);
   }
 
 //+------------------------------------------------------------------+
@@ -1485,8 +1544,8 @@ void DashAssertShape(const bool collapsed, const string phase)
                                               phase + "_bg_height");
    DashAssert(DashRowVisible("State")   != collapsed, phase + "_row_state_visibility");
    DashAssert(DashRowVisible("Expiry")  != collapsed, phase + "_row_expiry_visibility");
-   string hdr = ObjectGetString(0, DASH_PREFIX + "HeaderText", OBJPROP_TEXT);
-   DashAssert(StringFind(hdr, collapsed ? "▲" : "▼") >= 0, phase + "_header_arrow");
+   string btn = ObjectGetString(0, DASH_PREFIX + "CollapseBtn", OBJPROP_TEXT);
+   DashAssert(btn == (collapsed ? "▲" : "▼"), phase + "_collapse_btn_arrow");
   }
 
 //--- The battery: runs exactly once, first tick after the panel is built.
@@ -1502,14 +1561,14 @@ void RunDashSyntheticBattery()
    // (~16 px tall at the top-left) and inside the chart when its pixel
    // height is known (0 = not yet available on this chart — skip, screenshots
    // cover it in the visual run).
-   DashAssert(DASH_Y >= 18, "geometry_below_ohlc_label");
+   DashAssert(g_dashY >= 18, "geometry_below_ohlc_label");
    long chartH = ChartGetInteger(0, CHART_HEIGHT_IN_PIXELS, 0);
    if(chartH > 0)
-      DashAssert(DASH_Y + DASH_HEADER_H + DASH_ROW_H * DASH_ROWS <= (int)chartH,
+      DashAssert(g_dashY + DASH_HEADER_H + DASH_ROW_H * DASH_ROWS <= (int)chartH,
                  "geometry_fits_chart_height");
 
-   // 1) Synthetic header click -> collapses to title bar
-   DashSendEvent(CHARTEVENT_OBJECT_CLICK, DASH_PREFIX + "HeaderText");
+   // 1) Synthetic collapse-button click -> collapses to title bar
+   DashSendEvent(CHARTEVENT_OBJECT_CLICK, DASH_PREFIX + "CollapseBtn");
    DashAssertShape(true, "collapse_click");
    DashScreenshot("PANEL_COLLAPSED");
 
@@ -1517,8 +1576,8 @@ void RunDashSyntheticBattery()
    DashSendEvent(CHARTEVENT_CHART_CHANGE, "");
    DashAssertShape(true, "tf_switch_collapsed");
 
-   // 3) Second click (on the header rect this time) -> expands again
-   DashSendEvent(CHARTEVENT_OBJECT_CLICK, DASH_PREFIX + "Header");
+   // 3) Second collapse-button click -> expands again
+   DashSendEvent(CHARTEVENT_OBJECT_CLICK, DASH_PREFIX + "CollapseBtn");
    DashAssertShape(false, "expand_click");
 
    // 4) Synthetic timeframe switch while expanded -> still expanded
@@ -1526,7 +1585,25 @@ void RunDashSyntheticBattery()
    DashAssertShape(false, "tf_switch_expanded");
    DashScreenshot("PANEL_EXPANDED");
 
-   int checks = 26 + (chartH > 0 ? 1 : 0);   // 5 shapes x 5 asserts + geometry
+   // 5) Synthetic header drag -> repositions every child object and persists;
+   //    dragged back to the original spot so the battery leaves no side effect.
+   int origX = g_dashX, origY = g_dashY;
+   int dragToX = origX + 37, dragToY = origY + 41;
+   ObjectSetInteger(0, DASH_PREFIX + "Header", OBJPROP_XDISTANCE, dragToX);
+   ObjectSetInteger(0, DASH_PREFIX + "Header", OBJPROP_YDISTANCE, dragToY);
+   DashSendEvent(CHARTEVENT_OBJECT_DRAG, DASH_PREFIX + "Header");
+   DashAssert(g_dashX == dragToX && g_dashY == dragToY, "drag_moves_position");
+   DashAssert((int)ObjectGetInteger(0, DASH_PREFIX + "BG", OBJPROP_XDISTANCE) == dragToX &&
+              (int)ObjectGetInteger(0, DASH_PREFIX + "BG", OBJPROP_YDISTANCE) == dragToY,
+              "drag_moves_bg");
+   DashAssert((int)GVGet(GV_DASH_X, -1) == dragToX && (int)GVGet(GV_DASH_Y, -1) == dragToY,
+              "drag_persists_to_gv");
+   ObjectSetInteger(0, DASH_PREFIX + "Header", OBJPROP_XDISTANCE, origX);
+   ObjectSetInteger(0, DASH_PREFIX + "Header", OBJPROP_YDISTANCE, origY);
+   DashSendEvent(CHARTEVENT_OBJECT_DRAG, DASH_PREFIX + "Header");
+   DashAssert(g_dashX == origX && g_dashY == origY, "drag_restores_position");
+
+   int checks = 26 + (chartH > 0 ? 1 : 0) + 4;   // 5 shapes x 5 asserts + geometry + drag
    HydraLog(StringFormat("[DASH-SELFTEST] synthetic battery complete: %d checks, %d failures",
                          checks, g_selfTestFails - failsBefore));
   }

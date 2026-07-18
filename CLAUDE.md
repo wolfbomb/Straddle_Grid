@@ -289,10 +289,20 @@ verify no partial grids, no orphaned orders after restart mid-ACTIVE.
 **Header:** `SIGMA Hydra v1.0` — version string sourced from the single `HYDRA_VERSION` constant (never hardcoded twice).
 
 **Behavior:**
-- Collapsible panel, anchored top-left of chart.
-- **Default state: expanded.** Clicking the header toggles collapse.
-- Collapsed state shows the **title bar only** (header text + a small ▲/▼ indicator).
-- Collapse state persists across timeframe switches (chart object based, rebuilt in `OnChartEvent`).
+- Collapsible, **draggable** panel (added v2.3, 2026-07-19). Default position top-left of
+  chart (8, 20 px) on first-ever run; falls back to that default if no saved position
+  exists.
+- **Default state: expanded.** A dedicated ▲/▼ button at the right edge of the header
+  toggles collapse — clicking elsewhere on the header/title bar drags the whole panel
+  instead (dragging and the collapse click are separate objects/gestures, so one can't
+  accidentally trigger the other).
+- Collapsed state shows the **title bar only** (header text + the ▲/▼ button).
+- Dragging the header repositions the entire panel (background, title, all rows),
+  clamped to stay fully on-chart and below the terminal's native OHLC label.
+- Both collapse state (within a session — resets to expanded on EA reload, matching the
+  existing "default: expanded" behavior) and the **dragged position (persists across
+  restarts** via global variables, same durability class as the whipsaw counter / trail
+  floor) survive timeframe switches (chart object based, rebuilt in `OnChartEvent`).
 
 **Visual style (modern):**
 - Dark translucent background (`clrBlack`-based rectangle label with subtle alpha look), rounded feel via padding, accent color per state: gray = IDLE, blue = ARMED, green = ACTIVE (profit), red = ACTIVE (drawdown), orange = COOLDOWN.
@@ -319,10 +329,12 @@ Keep the panel read-only — no trade buttons (SIGMA safety convention: the only
    mismatches log `[DASH-FAIL]` lines that `run_tests.sh` counts (UTF-16-aware) into a
    PASS/FAIL summary per run. Always on, live and tester; silent when correct.
 2. *Synthetic event battery + screenshots* (`DashSelfTest=true`, tester-only): synthesizes
-   the header click and `CHARTEVENT_CHART_CHANGE` through `OnChartEvent()` and asserts
-   collapse/expand geometry, row visibility, arrow glyph, and collapse persistence; in
-   visual mode also captures `ChartScreenShot()` PNGs of every display state for review.
-   The only check code cannot make is MT5's own mouse-pixel → `CHARTEVENT_OBJECT_CLICK`
+   the collapse-button click, a header drag (`CHARTEVENT_OBJECT_DRAG`), and
+   `CHARTEVENT_CHART_CHANGE` through `OnChartEvent()` and asserts collapse/expand
+   geometry, row visibility, arrow glyph, collapse persistence, and that a drag actually
+   repositions every child object and persists via global variable; in visual mode also
+   captures `ChartScreenShot()` PNGs of every display state for review. The only checks
+   code cannot make are MT5's own mouse-pixel → `CHARTEVENT_OBJECT_CLICK`/`OBJECT_DRAG`
    hit-testing (platform behavior).
 
 ---
