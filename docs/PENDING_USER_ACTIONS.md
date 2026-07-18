@@ -1,8 +1,10 @@
 # PENDING_USER_ACTIONS.md — Your Test Queue
 
 > Everything currently waiting on you (the user).
-> Current build: `Straddle_Grid.mq5` **v2.2** — **Phases 1–8 all complete + FOMC-Only
-> Mode (CLAUDE.md §5.1).**
+> Current build: `Straddle_Grid.mq5` **v2.3** — **Phases 1–8 all complete + FOMC-Only
+> Mode (CLAUDE.md §5.1) + draggable dashboard (§10.1).** The data-folder copy feeding the
+> scheduled FOMC deployment is already recompiled to v2.3 — no separate action needed,
+> the July 28 attach will use this binary automatically.
 >
 > ✅ **Validated** (full detail in `docs/TEST_REPORT_P7.md` + `docs/CHECKLIST.md`):
 > compile clean · all 5 gates + short-circuit · grid deploy 9+9 · OCO · sequential fills ·
@@ -12,12 +14,15 @@
 > aborts, zero orders) · **restart mid-`ACTIVE` on a live demo chart** (hard-kill with 2
 > positions + 7 pendings → recovered, zero duplicates) · **foreign orders untouched**
 > (verified through a full live cycle incl. crash) · dashboard fully verified (read-back
-> guard + 27-check synthetic battery + live-chart pixel review; the empty-gates-row
-> "Label" artifact found in review is fixed in v2.1).
+> guard + 31-check synthetic battery incl. drag + live-chart pixel review; the
+> empty-gates-row "Label" artifact found in review is fixed in v2.1) · **dashboard now
+> draggable** (v2.3) — position persists across restarts, collapse moved to a dedicated
+> button so it can't conflict with dragging.
 >
-> The only dashboard check no code can make: one physical mouse click on the header
-> (MT5's own pixel hit-testing). Entirely optional — try it whenever you're next at a
-> chart; the click handler itself is proven.
+> The only dashboard checks no code can make: one physical mouse click on the collapse
+> button, and one physical click-and-drag on the header (MT5's own pixel hit-testing).
+> Entirely optional — try them whenever you're next at a chart; both handlers are proven
+> via the synthetic battery.
 
 ## ⚠ THE one open problem before live: negative campaign P/L — best lead found, but backward-looking testing is now exhausted
 
@@ -45,7 +50,7 @@ Built the calendar-aware gate (`FOMCOnlyMode`, `FOMCDatesCSV`, `FOMCWindowDays` 
 CLAUDE.md §5.1), additive-only (zero effect when off), verified end-to-end on a
 headless test: correctly blocks outside the FOMC window, falls through to normal
 session gating inside it, deployed/filled/exited cleanly, no errors. `HYDRA_VERSION`
-bumped to **v2.2**.
+bumped to **v2.2** (dashboard drag support added on top of this in **v2.3**).
 
 Real 2026 FOMC decision dates verified against federalreserve.gov: **Jan 28, Mar 18,
 Apr 29, Jun 17, Jul 29, Sep 16, Oct 28, Dec 9**. The remaining four are ahead of us —
@@ -75,5 +80,5 @@ logs to `tools/fomc-live/tracking.log`.
 | 2026-07-28 06:00 | Scheduled: attach for the Jul 29 FOMC meeting |
 | 2026-07-30 06:00 | Scheduled: detach, log the outcome |
 | Ongoing | Repeat for Sep 16 / Oct 28 / Dec 9 automatically |
-| Optional, next time at a screen | One physical header click on the dashboard |
+| Optional, next time at a screen | One physical collapse-button click + one drag on the dashboard |
 | Pre-live | 1-week demo soak — blocked until forward-tracking confirms a real edge |
