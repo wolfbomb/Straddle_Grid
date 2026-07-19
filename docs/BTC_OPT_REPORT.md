@@ -24,14 +24,14 @@ below was tested against data the sweep that produced it never saw.
 
 ## Sweep 1 — basket exits, 25 combinations (complete search, real ticks from the start)
 
-**Config:** `tools/strategy-tester/configs/opt/hydra_opt_04_btcusd_exits.ini`, launched
-via `run_opt.sh`. **Model=4 real ticks throughout** — no OHLC shortcut, unlike
+**Config:** launched via `run_opt.sh` (sweep config removed after review — see note at
+end of report). **Model=4 real ticks throughout** — no OHLC shortcut, unlike
 `OPT_REPORT.md` Sweep 01 (that shortcut is what produced a winner that later collapsed
 from +$1,673 to -$5,496 under real-tick re-validation for gold; not repeated here).
 Grid: `BasketTP_USD` ∈ {3,6,9,12,15}, `BasketSL_USD` ∈ {2,4,6,8,10}.
 `TrailActivate_USD`/`TrailDistance_USD` held fixed at the smoke-test preset's values
 (3.0/1.5) to keep the grid 2D. Everything else at the `hydra_15_btcusd_smoke.set`
-first-pass BTCUSD geometry. Full sorted results: `docs/opt/btc_opt_04_exits_all25.csv`.
+first-pass BTCUSD geometry. Full 25-combo grid reproduced in the table below.
 
 **Full grid (Profit, TP → columns, SL → rows):**
 
@@ -66,11 +66,11 @@ not a real edge on its own (PF 1.01, Sharpe ≈ 0).
 
 ## Sweep 2 — entry-side, 12 combinations (real ticks, sequential single passes)
 
-**Method:** `tools/strategy-tester/entry_sweep_btc.py` (native MT5 optimizer can't
-sweep the string-typed `Session1`/`Session2` inputs — same reason `OPT_REPORT.md`'s
-Sweep 02 used a custom driver). Exits fixed at Sweep 1's validated candidate B
-(TP=6/SL=2). Grid: 4 session variants × `GridSpacingUSD` ∈ {40,45,60}. Full data:
-`docs/opt/btc_entry_sweep_results.csv`.
+**Method:** a custom Python driver (native MT5 optimizer can't sweep the string-typed
+`Session1`/`Session2` inputs — same reason `OPT_REPORT.md`'s Sweep 02 used a custom
+driver; script removed after review, see note at end of report). Exits fixed at
+Sweep 1's validated candidate B (TP=6/SL=2). Grid: 4 session variants ×
+`GridSpacingUSD` ∈ {40,45,60}. Full 12-combo grid reproduced in the table below.
 
 | Session | Spacing | Profit | PF | eqDD % | Trades |
 |---|---|---|---|---|---|
@@ -114,40 +114,111 @@ training window, not a one-off spike — and it *still* didn't survive the held-
 window. Coherence-within-training-data is necessary evidence against overfitting but
 is **not sufficient**; it does not guarantee genuine out-of-sample robustness.
 
-## Conclusions (2026-07-19)
+## Sweep 3 — joint (exits × spacing, per session), 225 combinations, real ticks
 
-1. **No candidate from either sweep survived out-of-sample validation as a real
-   edge.** 4 candidates tested (2 exits, 2 entry-side); 3 rejected outright (sign
-   flip), 1 survived but only at near-breakeven (PF 1.01, Sharpe ≈ 0). This mirrors
-   XAUUSD-VIP's ultimate conclusion despite BTCUSD's training-window surface looking
-   considerably more promising along the way (9/12 profitable entry combos vs gold's
-   0/9).
-2. **41 real-tick backtests ran this session** (25-combo exit sweep + 2 validations +
-   12-combo entry sweep + 2 validations) — real ticks throughout, no OHLC-model risk
-   anywhere in this campaign.
-3. **The strongest lesson: coherence is not the same test as held-out validation.**
-   Candidate C would have been reported as "the finding" under the weaker standard
-   `OPT_REPORT.md`'s FOMC sweep had to settle for (no held-out data available there).
-   Here, with genuine held-out data, it still failed. Any future sweep on this EA
-   should keep reserving a real held-out window rather than relying on
-   within-training coherence alone.
-4. **Live/demo deployment on BTCUSD remains unjustified** by anything found so far —
-   nothing tested beats "don't trade" with confidence that survives held-out data.
+**Method:** Sweeps 1–2 each fixed one axis while searching the other (Sweep 1 fixed
+entry geometry at smoke-test defaults; Sweep 2 fixed exits at Sweep 1's weak winner).
+This sweep searches `BasketTP_USD` × `BasketSL_USD` × `GridSpacingUSD` **jointly**, once
+per session variant (native optimizer can't sweep the string session inputs, so one
+batch per session, same as before). Grid per session: `BasketTP_USD` ∈ {3,6,9,12,15},
+`BasketSL_USD` ∈ {2,4,6,8,10}, `GridSpacingUSD` ∈ {40,50,60} = 75 combos ×
+{ctrl, narrow, open30} = **225 combos total** (`always` excluded — already shown clearly
+bad in Sweep 2). Sweep configs removed after review (see note at end of report). Same
+training window throughout; headline numbers and the full profitable-region breakdown
+are reproduced below.
+
+**Headline: 68/225 (30.2%) combinations profitable.** The raw #1 result — **ctrl
+session, TP=3/SL=4/spacing=40, +$1,071.54, PF 1.138** — is the single largest profit
+number in the entire campaign, and also, on inspection, the clearest **isolated spike**
+yet: every immediate neighbor (same SL, same TP, or same spacing) is negative, several
+severely so. Rejected as noise before it was even validated (validation below confirms
+this).
+
+**The one region that looked genuinely different:** `SL=2` crossed with the two
+*selective* session windows:
+
+| Session | SL=2 combos positive | PF range |
+|---|---|---|
+| ctrl (wide, 3h windows) | 5/15 | 0.83 – 1.09 (inconsistent) |
+| **narrow** (1h windows) | **15/15** | 1.10 – 1.16 |
+| **open30** (30min windows) | **15/15** | 1.04 – 1.17 |
+
+30 of 30 combinations across `narrow`+`open30` at `SL=2` were profitable, independent of
+`BasketTP_USD` or `GridSpacingUSD` — the tightest, most internally consistent positive
+region found anywhere in this campaign, and a mechanistically sensible one (a tight
+stop pairs badly with a wide, chop-admitting session window, consistent with `ctrl`'s
+5/15 hit rate right next to it). Best points: open30/TP=3/SL=2/sp=40 (PF 1.166, the
+highest PF in the whole 225-combo grid) and narrow/TP=9/SL=2/sp=40 (+$637.25, the
+highest profit within the coherent region).
+
+### Out-of-sample validation (held-out window)
+
+| Candidate | Training | Held-out | Verdict |
+|---|---|---|---|
+| E: open30/TP=3/SL=2/sp=40 (highest PF in the grid, 1.166) | +486.15, PF 1.166 | **-188.17, PF 0.85, Sharpe -3.48** | **REJECTED** |
+| F: narrow/TP=9/SL=2/sp=40 (highest profit in the coherent region) | +637.25, PF 1.155 | **-306.11, PF 0.81, Sharpe -3.95** | **REJECTED** |
+| G: ctrl/TP=3/SL=4/sp=40 (isolated spike, sanity check) | +1071.54, PF 1.138 | **-754.06, PF 0.77, Sharpe -5.00** | **REJECTED** (worst of the three — consistent with pure noise) |
+
+**This closes out the SL=2 pattern entirely.** Combined with candidate C from Sweep 2
+(narrow/TP=6/SL=2/sp=60, also rejected: -98.11/PF 0.90), **3 of 3** tested points from
+what looked like the strongest, most structurally-sensible pattern in the whole
+campaign — a 30-cell, 100%-training-positive, mechanistically-explicable region — failed
+out-of-sample. This is a stronger rejection than candidate C alone suggested: it isn't
+one unlucky point, the entire region doesn't hold.
+
+## Conclusions (2026-07-19, final)
+
+1. **No candidate from any of the three sweeps survived out-of-sample validation as a
+   real edge.** 7 candidates tested total (2 exits-only, 2 entry-only, 3 joint); 6
+   rejected outright (sign flip, one of them the worst OOS performer of the whole
+   campaign), 1 survived at only near-breakeven (PF 1.01, Sharpe ≈ 0). This is the same
+   conclusion class as XAUUSD-VIP's campaign, reached with a stricter method (a real
+   held-out window reserved from the start, which the gold campaign never had).
+2. **262 real-tick backtests ran across this campaign** (25 + 12 + 225 sweep combos) +
+   7 out-of-sample validation passes = **269 real-tick runs total**, `Model=4` throughout,
+   no OHLC-model risk anywhere.
+3. **The central lesson, reinforced twice now:** within-training coherence — even a
+   30-cell, 100%-positive, mechanistically-sensible region spanning two session
+   variants and every tested TP/spacing — is not the same test as held-out validation
+   and does not guarantee real edge. The joint sweep looked more convincing than
+   anything in Sweeps 1–2, and it still failed completely.
+4. **Every parameter axis this EA exposes for BTCUSD has now been searched**: exits
+   alone, entry-timing alone, and exits×spacing jointly, across all four candidate
+   session windows. None produced anything that survives contact with unseen data.
+5. **Live/demo deployment on BTCUSD remains unjustified.** Nothing tested across three
+   sweeps and seven validations beats "don't trade" with confidence that survives
+   held-out data.
 
 ## Recommended next steps (user decision)
 
-1. **A joint sweep (exits × entry-side together)** hasn't been tried — Sweep 1 fixed
-   entry geometry at the smoke-test defaults, Sweep 2 fixed exits at Sweep 1's weak
-   winner. It's possible the true combination lives off both axes simultaneously, but
-   this multiplies the multiple-comparisons risk further on an already-short (6.5
-   month) data history — diminishing returns are a real concern, not just more compute.
-2. **`ATR_Min/Max_USD` and the lot progression are still unswept**, same as gold's
-   report flagged for its own remaining backlog.
-3. **BTCUSD's history is short.** Every months-long window used here overlaps
-   substantially with every other — there isn't much genuinely independent data left
-   on this account to keep testing against. Prospective (forward/demo) tracking, the
-   same conclusion `OPT_REPORT.md` reached for gold's FOMC-only mode, is likely the
-   more honest path forward if this is pursued further.
+1. **Parameter tuning on the always-on trigger is likely exhausted for this
+   instrument.** Three independent sweep designs (single-axis ×2, joint) and every
+   session variant have now failed to produce a validated edge — same shape as gold's
+   conclusion, reached faster. Grinding this same space further (e.g. `ATR_Min/Max_USD`,
+   lot progression, `GridLevels`) is technically still untested but low-expected-value
+   given how uniformly negative the out-of-sample results have been across everything
+   tried so far.
+2. **A calendar/event-gated trigger** (mirroring FOMC-Only Mode, CLAUDE.md §5.1) is the
+   more promising remaining direction — it's the one thing that changed gold's picture,
+   even if only to a fragile, unconfirmed lead. This is real EA development (a new
+   CLAUDE.md spec section, new inputs/gate logic, its own validation campaign), not a
+   config sweep, and would need its own scoping decision before starting.
+3. **BTCUSD's history is short and now substantially mined.** Every months-long window
+   used across this campaign overlaps heavily with every other; there isn't much
+   genuinely independent backtest data left on this account. If BTCUSD is pursued
+   further, prospective (forward/demo) tracking — the same conclusion `OPT_REPORT.md`
+   reached for gold's FOMC-only mode — is likely more honest than continuing to
+   backtest against an increasingly-reused window.
 4. Per CLAUDE.md's hard rules, none of this changes any compiled default —
    `AUTO_TRADING_ENABLED` stays `false`, and nothing here has been written into
    CLAUDE.md's canonical Inputs block.
+
+## Note on removed artifacts (2026-07-20)
+
+The per-sweep `.ini` configs (`hydra_opt_04`–`hydra_opt_14`), the custom Python driver
+(`entry_sweep_btc.py`), and the raw per-combo result CSVs (`docs/opt/btc_*.csv`) were
+deleted after this report was written up — this document is the sole surviving record
+of the campaign. Every number needed to understand what was tried and found is
+reproduced in the tables above; nothing here can be re-run without recreating those
+files from scratch. `hydra_15_btcusd_smoke.set`/`.ini` (the first-pass, non-optimized
+geometry) were kept — they're the smoke test, not part of the optimization campaign.
