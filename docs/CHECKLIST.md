@@ -44,10 +44,16 @@
 - [x] **State recovery — `ACTIVE` and `IDLE` proven.** Run 09 (2026-07-17, live demo):
       hard-kill mid-`ACTIVE` with 2 positions + 7 pendings → full recovery, tickets
       preserved, no duplicate grid. `IDLE` recovery ("clean slate") is exercised on every
-      run. **`ARMED`- and `COOLDOWN`-specific restart recovery were not separately
-      exercised** — the code path exists (`RecoverState()` handles all four states
-      symmetrically) but no test has specifically killed the terminal while pending
-      orders were live with zero fills, or while mid-`COOLDOWN`.
+      run. **`ARMED`- and `COOLDOWN`-specific restart recovery: harness built, execution
+      blocked by weekend market closure (2026-07-19 is a Sunday — no ticks arrive, so
+      the grid can't even reach `ARMED` for real, let alone fill or exit).**
+      `tools/restart-test/restart_armed_test.py` and `restart_cooldown_test.py` are
+      ready to rerun once the market reopens. Two real bugs were found and fixed while
+      building this: `restart_test.py`'s `terminal_pids()` matched by bare process name
+      (risk: `hard_kill()` could force-close an unrelated sibling project's terminal if
+      one happened to be running) and `capture_window.ps1` had the same gap (captured a
+      different EA's dashboard on a sibling's NAS100 chart instead of ours) — both now
+      filter by exact install path.
 
 ## Phase 2 — Gates
 
@@ -148,12 +154,14 @@
       intentional, not a bug.)
 - [x] Cooldown lasts `WhipsawCooldownMin`. (Run 04: fired at 07:00:00, cooldown logged
       until 08:00:00 — exactly the 60 min default.) *("Gates not evaluated during cooldown" specifically not separately audited via log-absence.)*
-- [ ] Whipsaw counter **survives terminal restart** specifically. *(Persistent global variable, same mechanism as the trail floor which does survive restart per Run 09 — but no test has restarted the terminal specifically mid-whipsaw-cooldown to confirm the counter value itself.)*
+- [ ] Whipsaw counter **survives terminal restart** specifically. *(Persistent global variable, same mechanism as the trail floor which does survive restart per Run 09. Lower priority than the other live-demo gaps here: forcing a genuine two-sided fill within `WhipsawWindowSec` needs real, unpredictable two-directional market movement — meaningfully less controllable than the others even once markets reopen — so this wasn't attempted 2026-07-19 alongside the market-closure-blocked tests below.)*
 - [x] Counter reaches `MaxWhipsawsPerDay` → COOLDOWN holds until next trading day. (Run
       04: "2/2 today" → `COOLDOWN` until next trading day, both test days.)
 - [x] Counter resets automatically on new trading day. (Run 04: `whipsaw counter reset
       for the new trading day` logged exactly at the day boundary.)
-- [ ] Restart during cooldown → recovers to COOLDOWN with correct remaining time. *(Not specifically exercised via an actual restart; `RecoverState()` implements this path.)*
+- [ ] Restart during cooldown → recovers to COOLDOWN with correct remaining time.
+      *(See Phase 1's note above — `restart_cooldown_test.py` is built and ready, blocked
+      by weekend market closure on 2026-07-19.)*
 
 ## Phase 6 — Basket Manager
 
@@ -184,7 +192,11 @@
 - [x] Whipsaw guard still runs before basket logic every tick. (Verified by reading the
       `OnTick` dispatch: `CheckWhipsawGuard()` is called before `ManageBasket()` in the
       `ACTIVE` branch, unchanged since Phase 5.)
-- [ ] Restart after trail activation → floor recovered, not reset to none. *(Run 09's restart happened before any TP/SL/trail exit in that cycle, so it didn't specifically exercise a restart **after** the floor was already active. `RecoverState()` implements floor recovery from a persistent global variable, per CLAUDE.md §7, but this exact scenario — kill after trailing has engaged — hasn't been directly tested.)*
+- [ ] Restart after trail activation → floor recovered, not reset to none. *(Run 09's
+      restart happened before any TP/SL/trail exit, so it didn't exercise a restart
+      **after** the floor was already active. `tools/restart-test/restart_trail_test.py`
+      is built and ready — blocked by weekend market closure on 2026-07-19, same as the
+      ARMED/COOLDOWN tests above.)*
 
 ## Phase 7 — Strategy Tester Validation Campaign
 

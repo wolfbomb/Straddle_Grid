@@ -75,10 +75,20 @@ def check(cond, what):
 
 
 def terminal_pids():
+    # Filter by exact install path, not bare process name: other unrelated
+    # MT5 installs on this machine (e.g. D:\MT5_Live_Demo, D:\MT5_NAS100_v2)
+    # also run as "terminal64.exe". Safety-critical here specifically:
+    # hard_kill() force-kills every PID this returns, so a name-only match
+    # could kill an unrelated sibling project's terminal if one happened to
+    # be running at the same moment (found 2026-07-19 while auditing this
+    # script before a new restart-test variant).
     out = subprocess.run(
-        ["tasklist", "/FI", "IMAGENAME eq terminal64.exe", "/FO", "CSV", "/NH"],
+        ["powershell", "-NoProfile", "-Command",
+         "Get-CimInstance Win32_Process -Filter \"Name='terminal64.exe'\" | "
+         f"Where-Object {{ $_.ExecutablePath -eq '{TERMINAL}' }} | "
+         "Select-Object -ExpandProperty ProcessId"],
         capture_output=True, text=True).stdout
-    return [int(m) for m in re.findall(r'"terminal64.exe","(\d+)"', out)]
+    return [int(pid) for pid in out.split() if pid.strip().isdigit()]
 
 
 def launch_terminal(config=None):

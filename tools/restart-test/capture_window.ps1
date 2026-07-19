@@ -15,8 +15,18 @@ public class Win32Capture {
 }
 "@
 
-$p = Get-Process terminal64 -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1
-if (-not $p) { Write-Error "no terminal64 window found"; exit 1 }
+# Filter by exact install path, not bare process name: other unrelated MT5
+# installs on this machine (e.g. D:\MT5_Live_Demo, D:\MT5_NAS100_v2) also run
+# as "terminal64.exe" - a name-only match can silently screenshot a
+# sibling project's window instead of ours (found 2026-07-19: captured a
+# different EA's dashboard on NAS100 while 3 terminals were running at once).
+$ourPath = "C:\Program Files\MetaTrader 5\terminal64.exe"
+$ourPids = Get-CimInstance Win32_Process -Filter "Name='terminal64.exe'" |
+           Where-Object { $_.ExecutablePath -eq $ourPath } |
+           Select-Object -ExpandProperty ProcessId
+$p = Get-Process -Id $ourPids -ErrorAction SilentlyContinue |
+     Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1
+if (-not $p) { Write-Error "no window found for our terminal64.exe ($ourPath)"; exit 1 }
 $hwnd = $p.MainWindowHandle
 [Win32Capture]::ShowWindow($hwnd, 9) | Out-Null   # SW_RESTORE in case minimized
 Start-Sleep -Milliseconds 500
