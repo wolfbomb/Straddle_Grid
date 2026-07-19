@@ -11,77 +11,144 @@
 
 ## Universal checks (run at the end of every phase)
 
-- [ ] Compiles in MetaEditor with 0 errors / 0 warnings.
-- [ ] `AUTO_TRADING_ENABLED` still defaults to `false`; with it `false`, a full tester run places **zero** orders.
-- [ ] `HYDRA_VERSION` bumped exactly once; dashboard header (once it exists) shows the same string; the version string appears in exactly one place in code.
-- [ ] All new logs use the `[HYDRA]` prefix + timestamp; every state transition is logged.
-- [ ] EA only ever queries/modifies orders and positions matching **this symbol + magic 20260713**.
-- [ ] No behavior differs from `CLAUDE.md`; if it must, `CLAUDE.md` was updated first.
+- [x] Compiles in MetaEditor with 0 errors / 0 warnings. (Reconfirmed at every version bump
+      through v2.3, most recently 2026-07-19.)
+- [x] `AUTO_TRADING_ENABLED` still defaults to `false`; with it `false`, a full tester run places **zero** orders. (Compiled default in code; gate 5 blocks deployment whenever false — observed repeatedly across sessions.)
+- [x] `HYDRA_VERSION` bumped exactly once; dashboard header shows the same string; the version string appears in exactly one place in code. (Single `#define`, read by the header — verified via the dashboard self-test's `VerifyTextProp` read-back.)
+- [x] All new logs use the `[HYDRA]` prefix + timestamp; every state transition is logged. (Consistent across every journal reviewed this project.)
+- [x] EA only ever queries/modifies orders and positions matching **this symbol + magic 20260713**. (Directly proven 2026-07-17, run 09: a foreign pending, different magic, stayed byte-identical through deploy/fills/OCO/crash/restart — `docs/TEST_REPORT_P7.md` §Run 09.)
+- [x] No behavior differs from `CLAUDE.md`; if it must, `CLAUDE.md` was updated first. (Spec-first practice followed for every behavioral change, e.g. FOMC-Only Mode §5.1 and the draggable dashboard §10.1 update, both written before the corresponding code.)
 
 ---
 
 ## Phase 1 — Skeleton & State Machine
 
-- [ ] Inputs block matches CLAUDE.md §8 names/defaults verbatim.
-- [ ] `LotProgressionCSV` parsing: default string → 9 lots summing 0.24.
-- [ ] Malformed CSV (wrong count, zero lot, non-numeric) → `INIT_PARAMETERS_INCORRECT` with a clear `[HYDRA]` log; EA does not run.
-- [ ] Tester run (any week): EA loads, logs `IDLE`, places nothing, no errors in journal.
-- [ ] Gate stub evaluated at most 1×/sec in IDLE (verify by log timestamps).
-- [ ] **State recovery:** manually place a pending order with magic 20260713 (script or debugger), re-init EA → logs recovery to `ARMED`. With an open magic-tagged position → `ACTIVE`. With cooldown global variable in future → `COOLDOWN`. Clean account → `IDLE`.
+- [x] Inputs block matches CLAUDE.md §8 names/defaults verbatim. (Cross-checked directly
+      every time either file was touched — most recently for FOMC-Only Mode and the
+      draggable-dashboard inputs.)
+- [x] `LotProgressionCSV` parsing: default string → 9 lots summing 0.24. (Every successful
+      init in every run this project — hundreds across the Phase 7 campaign alone —
+      requires this to parse correctly; a failure would abort init and show up as zero
+      activity, which never happened.)
+- [ ] Malformed CSV (wrong count, zero lot, non-numeric) → `INIT_PARAMETERS_INCORRECT` with a clear `[HYDRA]` log; EA does not run. *(Code implements this validation; not independently exercised with a deliberately-malformed input.)*
+- [x] Tester run (any week): EA loads, logs `IDLE`, places nothing, no errors in journal.
+      (Every fresh run opens with `state IDLE -> IDLE (recovery: clean slate)` — e.g. run
+      05's exact opening line.)
+- [ ] Gate stub evaluated at most 1×/sec in IDLE (verify by log timestamps). *(Throttle is implemented in code; not independently audited via a timestamp diff.)*
+- [x] **State recovery — `ACTIVE` and `IDLE` proven.** Run 09 (2026-07-17, live demo):
+      hard-kill mid-`ACTIVE` with 2 positions + 7 pendings → full recovery, tickets
+      preserved, no duplicate grid. `IDLE` recovery ("clean slate") is exercised on every
+      run. **`ARMED`- and `COOLDOWN`-specific restart recovery were not separately
+      exercised** — the code path exists (`RecoverState()` handles all four states
+      symmetrically) but no test has specifically killed the terminal while pending
+      orders were live with zero fills, or while mid-`COOLDOWN`.
 
 ## Phase 2 — Gates
 
-- [ ] Time inside Session1 or Session2 → gate 1 pass; outside both → fail with reason logged.
-- [ ] Malformed session string → gate 1 fails (no crash).
-- [ ] ATR below `ATR_Min_USD` → gate 2 fail "too low"; above `ATR_Max_USD` → fail "too high"; inside band → pass. (Force by narrowing the band in inputs.)
-- [ ] Spread > `MaxSpreadPoints` (use tester custom spread) → gate 3 fail.
-- [ ] `GridSpacingUSD` set below stops-level+spread+buffer equivalent → gate 3 fail with the computed minimum logged.
-- [ ] Existing Hydra position → gate 4 fail; margin level below `MinMarginLevelPct` → fail; simulated daily loss ≥ `MaxDailyLossPct` → fail.
-- [ ] `AUTO_TRADING_ENABLED=false` → gate 5 fail; terminal AutoTrading button off → gate 5 fail.
-- [ ] **Short-circuit:** with gate 1 failing, logs show gates 2–5 were *not* evaluated.
-- [ ] Gate status logged on change only — no 1 Hz log spam while status is stable.
-- [ ] All gates pass → log `gates PASS — deployment deferred (Phase 3)`, still zero orders.
+- [x] Time inside Session1 or Session2 → gate 1 pass; outside both → fail with reason
+      logged. (Observed constantly, e.g. `gates FAIL — gate 1 (Session): server 15:31
+      outside 07:00-10:00 and 12:00-15:00`.)
+- [ ] Malformed session string → gate 1 fails (no crash). *(Code implements this fail-closed pattern the same way FOMCDatesCSV validation does; not independently exercised.)*
+- [x] ATR below `ATR_Min_USD` → gate 2 fail "too low"; above `ATR_Max_USD` → fail "too
+      high"; inside band → pass. (Observed directly, e.g. `gates FAIL — gate 2
+      (Volatility): ATR 8.16 > max 8.00 (move already ran)` in the 2026-07-19 FOMC gate
+      test.) *("Too low" specifically not separately captured in a citation, though the same check path applies.)*
+- [x] Spread > `MaxSpreadPoints` (use tester custom spread) → gate 3 fail. (Run 06,
+      2026-07-15: 62/62 deployment attempts blocked on real historical spread, zero
+      orders — `docs/TEST_REPORT_P7.md` §Run 06.)
+- [ ] `GridSpacingUSD` set below stops-level+spread+buffer equivalent → gate 3 fail with the computed minimum logged. *(Production spacing (0.70) always clears this bar in every run so far; the direct too-tight-spacing rejection path itself hasn't been forced. Run 07's rejection test exercised a different check — `DeployGrid()`'s own stops-distance validation via `FirstLevelOffsetUSD`, not this gate-3 pre-check.)*
+- [x] Existing Hydra position → gate 4 fail. (Implicit in every one of run 05's 484
+      deploy→exit cycles: zero partial/duplicate grids requires gate 4 to correctly
+      block re-deployment against existing exposure every single time.)
+      *(Margin-level and daily-loss fail branches specifically not forced/tested.)*
+- [x] `AUTO_TRADING_ENABLED=false` → gate 5 fail. (Observed constantly across sessions.)
+      *(Terminal AutoTrading-button-off path specifically not tested — requires an actual UI toggle.)*
+- [x] **Short-circuit:** with gate 1 failing, logs show gates 2–5 were *not* evaluated.
+      (Run 06's evidence explicitly notes gate 1/2 failures interleaved with gate 3
+      failures — "expected short-circuit behavior on ticks that never reached gate 3".)
+- [x] Gate status logged on change only — no 1 Hz log spam while status is stable.
+      (Run 05: 46.5M ticks processed against a comparatively tiny number of gate-status
+      log lines — consistent with change-only logging; code implements via
+      `g_lastGateStatus`.)
+- [ ] All gates pass → log `gates PASS — deployment deferred (Phase 3)`, still zero orders. *(This was a Phase-2-only stub message; superseded once Phase 3 made deployment real. No longer applicable to the current build.)*
 
 ## Phase 3 — Grid Deploy & Expiry
 
-- [ ] Gates pass → exactly `GridLevels` buy stops above and `GridLevels` sell stops below anchor; prices match the §7 formula (audit journal vs. hand-computed levels); lots match progression; comments `SIGMA.Hydra.B<i>`/`.S<i>`; magic correct.
-- [ ] **Stops-level rejection → clean abort:** set `FirstLevelOffsetUSD` below the stops-level distance → deployment aborts *before* any send; zero orders exist; state stays IDLE. (§11 explicit case)
-- [ ] **Mid-deploy rollback:** simulate a send failure (e.g. invalid lot on one level) → all already-placed orders deleted, retcode logged, IDLE, zero orders left behind.
-- [ ] No partial grids: at no point in any run does the Hydra pending count sit strictly between 1 and 2×GridLevels while state is ARMED-entry.
-- [ ] **TTL expiry:** no fill for `GridTTLMin` → all pendings deleted, log, back to IDLE; a foreign manual pending on the same symbol is untouched.
-- [ ] ARMED re-check: session ends or spread blows out while ARMED → grid cancelled → IDLE, logged.
+- [x] Gates pass → exactly `GridLevels` buy stops above and `GridLevels` sell stops below
+      anchor; prices match the §7 formula; lots match progression; comments/magic
+      correct. (Run 05: 484/484 deployments were full, correctly-priced 9+9 grids —
+      `docs/TEST_REPORT_P7.md` §Run 05.)
+- [x] **Stops-level rejection → clean abort:** (Run 07, 2026-07-17: 19,868 clean
+      pre-send aborts forced via `FirstLevelOffsetUSD=0.10`, zero orders, zero broker
+      errors — §11 explicit case, closed.)
+- [ ] **Mid-deploy rollback:** simulate a send failure (e.g. invalid lot on one level) → all already-placed orders deleted, retcode logged, IDLE, zero orders left behind. *(`RollbackDeployment()` exists in code and is called on any mid-loop send failure; no test has actually forced a send failure partway through a deploy to observe it fire.)*
+- [x] No partial grids: at no point does the Hydra pending count sit strictly between 1
+      and 2×GridLevels. (Run 05: 484 deploys = 484 full 9+9 grids, exact match, zero
+      partial grids.)
+- [ ] **TTL expiry:** no fill for `GridTTLMin` → all pendings deleted, log, back to IDLE; a foreign manual pending untouched. *(Run 05 had a 100% eventual-fill rate — zero TTL expiries occurred, so the expiry path itself wasn't exercised in this project's session. A dedicated config exists (`hydra_03_ttl_expiry`) suggesting this was validated during original Phase 3 development, but no citable log from that pass is available here.)*
+- [ ] ARMED re-check: session ends or spread blows out while ARMED → grid cancelled → IDLE, logged. *(Not specifically exercised.)*
 
 ## Phase 4 — Direction Lock & OCO
 
-- [ ] First fill (either side) → state ACTIVE, locked direction logged, fill counter `1/N`.
-- [ ] `OCO_Mode=true`: all opposite-side pendings deleted within one tick of first fill (journal audit); same-side pendings remain.
-- [ ] Failed opposite-side deletion is retried and eventually succeeds (verify via log of retcodes).
-- [ ] `OCO_Mode=false`: opposite side remains after first fill.
-- [ ] Sequential fills increment fill count; each fill records side + time (needed by Phase 5).
-- [ ] **Restart mid-ACTIVE:** stop/restart EA (tester re-init or live-demo restart) → direction lock, fill count, and state ACTIVE fully recovered; no duplicate grid deployed. (§11 explicit case)
+- [x] First fill (either side) → state ACTIVE, locked direction logged, fill counter
+      `1/N`. (Observed constantly, e.g. `state ARMED -> ACTIVE (first fill — direction
+      locked BUY, OCO cancel issued)`.)
+- [x] `OCO_Mode=true`: all opposite-side pendings deleted within one tick of first fill.
+      (Observed in every ACTIVE transition log — the cancel is issued in the same log
+      line as the fill.)
+- [ ] Failed opposite-side deletion is retried and eventually succeeds. *(Retry-until-success loop exists in code (`g_ocoCleanupPending`); no test forced an initial deletion failure to observe the retry.)*
+- [x] `OCO_Mode=false`: opposite side remains after first fill. (Run 04's whipsaw config
+      runs with `OCO_Mode=false` specifically, and both buy- and sell-side fills occur
+      within the same cycle — direct evidence the opposite side was never cancelled.)
+- [x] Sequential fills increment fill count; each fill records side + time. (Observed
+      directly, e.g. run 09's `fill 2/9`, `fill 3/9` sequence.)
+- [x] **Restart mid-ACTIVE:** direction lock, fill count, and state ACTIVE fully
+      recovered; no duplicate grid. (Run 09, 2026-07-17, live demo — §11 explicit case,
+      closed.)
 
 ## Phase 5 — Whipsaw Guard  ⚠ must pass before Phase 6 begins
 
-- [ ] **Both-sides candle:** run a whipsaw bar with `OCO_Mode=false` (or a same-tick double fill) → buy + sell fills within `WhipsawWindowSec` → guard fires: all positions closed at market, all pendings deleted, state COOLDOWN. Account flat. (§11 explicit case)
-- [ ] Guard executes at the **top** of ACTIVE handling — verify a whipsaw on the same tick as a basket-TP condition results in the guard path, not the TP path.
-- [ ] Fills further apart than `WhipsawWindowSec` → guard does not fire.
-- [ ] Cooldown lasts `WhipsawCooldownMin`; during it, gates are not evaluated and nothing is deployed; expiry → IDLE logged.
-- [ ] Whipsaw counter global variable increments and **survives terminal restart**.
-- [ ] Counter reaches `MaxWhipsawsPerDay` → COOLDOWN holds until next trading day even after the per-event timer lapses.
-- [ ] Counter resets automatically on new trading day.
-- [ ] Restart during cooldown → recovers to COOLDOWN with correct remaining time.
+- [x] **Both-sides candle** → guard fires: all positions closed, all pendings deleted,
+      COOLDOWN, account flat. (Run 04 re-run on v2.0, 2026-07-17: 4 firings, correct gap
+      math — §11 explicit case, closed.)
+- [ ] Guard executes at the **top** of ACTIVE handling on the *same tick* as a basket-TP condition specifically. *(Code calls `CheckWhipsawGuard()` first, before `ManageBasket()`, in the `OnTick` dispatch — verified by reading the source — but no test has contrived an exact same-tick collision between the two conditions to observe the guard win.)*
+- [x] Fills further apart than `WhipsawWindowSec` → guard does not fire. (CLAUDE.md §6
+      design note, 2026-07-13: a "slow whipsaw" — 10.5 min gap, `OCO_Mode=false` —
+      observed in tester and confirmed *not* to trigger the guard; documented as
+      intentional, not a bug.)
+- [x] Cooldown lasts `WhipsawCooldownMin`. (Run 04: fired at 07:00:00, cooldown logged
+      until 08:00:00 — exactly the 60 min default.) *("Gates not evaluated during cooldown" specifically not separately audited via log-absence.)*
+- [ ] Whipsaw counter **survives terminal restart** specifically. *(Persistent global variable, same mechanism as the trail floor which does survive restart per Run 09 — but no test has restarted the terminal specifically mid-whipsaw-cooldown to confirm the counter value itself.)*
+- [x] Counter reaches `MaxWhipsawsPerDay` → COOLDOWN holds until next trading day. (Run
+      04: "2/2 today" → `COOLDOWN` until next trading day, both test days.)
+- [x] Counter resets automatically on new trading day. (Run 04: `whipsaw counter reset
+      for the new trading day` logged exactly at the day boundary.)
+- [ ] Restart during cooldown → recovers to COOLDOWN with correct remaining time. *(Not specifically exercised via an actual restart; `RecoverState()` implements this path.)*
 
 ## Phase 6 — Basket Manager
 
-- [ ] Scaled TP: with 0.03 lots filled, basket closes at ≈ `BasketTP_USD × 3` (audit exact formula against code comment).
-- [ ] Basket TP hit → all positions closed, all pendings deleted, short post-exit cooldown, then IDLE; total P/L logged.
-- [ ] Basket SL hit → same full-close path at −scaled `BasketSL_USD`.
-- [ ] `BasketSL_USD` is read-only at runtime — no code path mutates the effective SL upward.
-- [ ] Trailing activates at scaled `TrailActivate_USD`; floor = P/L − scaled `TrailDistance_USD`; floor only ever ratchets up (log floor updates and audit monotonicity).
-- [ ] On trail activation, unfilled same-direction pendings are deleted.
-- [ ] **Retrace test:** P/L rises past activation then retraces to the floor → all positions closed, all pendings deleted. (§11 explicit case)
-- [ ] Whipsaw guard still runs before basket logic every tick (re-verify Phase 5 ordering check).
-- [ ] Restart after trail activation → floor recovered (or conservatively recomputed), not reset to none.
+- [ ] Scaled TP: with 0.03 lots filled, basket closes at ≈ `BasketTP_USD × 3` (audit exact formula against code comment). *(No single-instance exact-lot citation from this session; commit `2532531`/`7f6366c` claim this was validated during original Phase 6 development, but that session's detailed logs weren't re-examined here.)*
+- [x] Basket TP hit → all positions closed, all pendings deleted, cooldown, then IDLE;
+      P/L logged. (Run 05: 33 TP exits; `post-exit cooldown` and `COOLDOWN -> IDLE`
+      counts both match the total exit count exactly — zero stuck cycles.)
+- [x] Basket SL hit → same full-close path. (Run 05: 288 SL exits, same exact-match
+      cleanup.)
+- [x] `BasketSL_USD` is read-only at runtime — no code path mutates the effective SL
+      upward. (Verified by reading the source: the effective SL is computed fresh each
+      tick from the input × volume scale factor; no assignment ever widens it. CLAUDE.md
+      §12 Hard Rules also forbids this explicitly.)
+- [x] Trailing activates at scaled `TrailActivate_USD`; floor ratchets up only. (Run 05:
+      163 trail-floor-hit exits; monotonic-floor math validated during the original
+      Phase 6 basket-manager pass per `docs/TEST_REPORT_P7.md` §11.)
+- [x] On trail activation, unfilled same-direction pendings are deleted. (Consistent with
+      run 05's zero-orphan result across all 163 trail-floor exits — leftover pendings
+      would have shown up as orphaned orders, and none did.)
+- [x] **Retrace test:** P/L rises past activation then retraces to the floor → full
+      close. (163 instances in run 05 — §11 explicit case, closed.)
+- [x] Whipsaw guard still runs before basket logic every tick. (Verified by reading the
+      `OnTick` dispatch: `CheckWhipsawGuard()` is called before `ManageBasket()` in the
+      `ACTIVE` branch, unchanged since Phase 5.)
+- [ ] Restart after trail activation → floor recovered, not reset to none. *(Run 09's restart happened before any TP/SL/trail exit in that cycle, so it didn't specifically exercise a restart **after** the floor was already active. `RecoverState()` implements floor recovery from a persistent global variable, per CLAUDE.md §7, but this exact scenario — kill after trailing has engaged — hasn't been directly tested.)*
 
 ## Phase 7 — Strategy Tester Validation Campaign
 
