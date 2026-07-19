@@ -1,0 +1,47 @@
+; Hydra scenario 15 — BTCUSD first-pass smoke test
+;
+; NOT backtest-validated (unlike CLAUDE.md's XAUUSD-VIP defaults, which came
+; from the docs/OPT_REPORT.md campaign). Derived mechanically from a single
+; live snapshot of VT Markets' BTCUSD contract spec (2026-07-19):
+;   contract_size=1 BTC/lot (vs XAUUSD-VIP's 100 oz/lot), stops_level=0 pts,
+;   live spread ~1700 pts (~$17), live ATR(M5,14) sample ~$97.29.
+; LotProgressionCSV deliberately left UNCHANGED from the gold defaults —
+; scaling position size for BTC is a separate risk decision, not made here.
+; AUTO_TRADING_ENABLED stays false: this run must place ZERO orders. Its
+; purpose is only to confirm the EA attaches to a BTCUSD chart and evaluates
+; gates cleanly against BTC's very different contract spec (esp. the 0-pt
+; stops level and ~$17 spread) without runtime errors.
+;
+; Derivation (contract_size=1, min lot 0.01 => contract*lot=0.01, vs gold's
+; contract*lot=1.0 at min lot — this is *why* the USD figures below look
+; small: BasketTP/SL_USD = target_price_move_USD * (contract*lot), and gold's
+; own $15/$10 targets happen to equal their required price move 1:1 only
+; because contract*minlot=1 for XAUUSD):
+;   GridSpacingUSD  = stops(0) + spread_cap($30) + buffer($10) + margin -> 45
+;   FirstLevelOffset = GridSpacing * (gold's 0.50/0.70 ratio)           -> 35
+;   ATR_Min/Max      = live $97.29 sample kept well inside a wide band  -> 40 / 250
+;   BasketTP_USD     = 5.6x ATR-equivalent price move * (contract*minlot 0.01) -> 6
+;   BasketSL_USD     = 3.7x ATR-equivalent price move * 0.01                   -> 4
+;   TrailActivate/Distance scaled the same way                          -> 3 / 1.5
+AUTO_TRADING_ENABLED=false
+MagicNumber=20260713
+GridLevels=9
+GridSpacingUSD=45.0
+FirstLevelOffsetUSD=35.0
+LotProgressionCSV=0.01,0.01,0.02,0.02,0.02,0.03,0.04,0.04,0.05
+OCO_Mode=true
+GridTTLMin=45
+BasketTP_USD=6.0
+BasketSL_USD=4.0
+TrailActivate_USD=3.0
+TrailDistance_USD=1.5
+Session1=07:00-10:00
+Session2=12:00-15:00
+ATR_Min_USD=40.0
+ATR_Max_USD=250.0
+MaxSpreadPoints=3000
+MinMarginLevelPct=500.0
+MaxDailyLossPct=3.0
+WhipsawWindowSec=300
+WhipsawCooldownMin=60
+MaxWhipsawsPerDay=2

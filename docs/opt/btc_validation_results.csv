@@ -1,0 +1,9 @@
+candidate,source_sweep,params,window,profit,pf,eqdd_pct,trades,sharpe,verdict
+A,sweep1_exits,"TP=3 SL=8 (raw argmax, isolated spike)",training 2026.02.01-2026.06.01,487.67,1.09,6.84,1329,1.13,n/a (training)
+A,sweep1_exits,"TP=3 SL=8 (raw argmax, isolated spike)",held-out 2026.06.01-2026.07.18,-48.56,0.97,3.26,433,-0.36,REJECTED
+B,sweep1_exits,"TP=6 SL=2 (coherent SL=2 row)",training 2026.02.01-2026.06.01,379.80,1.05,7.16,3500,0.52,n/a (training)
+B,sweep1_exits,"TP=6 SL=2 (coherent SL=2 row)",held-out 2026.06.01-2026.07.18,26.46,1.01,6.53,1175,0.22,weak survivor
+C,sweep2_entry,"narrow session x spacing=60 (coherent across 3 spacings)",training 2026.02.01-2026.06.01,430.10,1.15,3.89,1318,n/a,n/a (training)
+C,sweep2_entry,"narrow session x spacing=60 (coherent across 3 spacings)",held-out 2026.06.01-2026.07.18,-98.11,0.90,2.89,491,-1.85,REJECTED
+D,sweep2_entry,"ctrl session x spacing=60 (highest raw profit, less coherent family)",training 2026.02.01-2026.06.01,580.56,1.09,5.21,2831,n/a,n/a (training)
+D,sweep2_entry,"ctrl session x spacing=60 (highest raw profit, less coherent family)",held-out 2026.06.01-2026.07.18,-366.54,0.83,6.14,958,-3.69,REJECTED

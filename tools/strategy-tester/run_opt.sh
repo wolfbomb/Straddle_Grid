@@ -31,8 +31,17 @@ MERGED="$HERE/.merged/$NAME.ini"
 mkdir -p "$HERE/.merged"
 { cat "$COMMON_INI"; echo; cat "$INI"; } > "$MERGED"
 
-if tasklist //FI "IMAGENAME eq terminal64.exe" 2>/dev/null | grep -q terminal64; then
-    echo "[ERROR] terminal64.exe already running — close it first" >&2
+# Filter by exact install path, not bare process name: other unrelated MT5
+# installs on this machine (e.g. D:\MT5_Live_Demo, D:\MT5_NAS100_v2) also run
+# as "terminal64.exe" and don't hold our data folder's single-instance lock -
+# a name-only check false-blocks on them (same bug class entry_sweep.py's
+# terminal_running() was already fixed for; cost ~5.5h once before that fix).
+TERMINAL_WIN="$(cygpath -w "$TERMINAL")"
+RUNNING_COUNT="$(powershell -NoProfile -Command \
+    "(Get-CimInstance Win32_Process -Filter \"Name='terminal64.exe'\" | Where-Object { \$_.ExecutablePath -eq '$TERMINAL_WIN' }).Count" \
+    2>/dev/null | tr -d '\r')"
+if [ -n "$RUNNING_COUNT" ] && [ "$RUNNING_COUNT" != "0" ]; then
+    echo "[ERROR] our terminal64.exe ($TERMINAL_WIN) already running — close it first" >&2
     exit 1
 fi
 
