@@ -123,15 +123,27 @@ cooldown countdown, TTL countdown), and leftover-object cleanup on EA removal.
       Found + fixed in the same pass: empty `GateFailName` rendered MT5's default "Label"
       string (renderer-only artifact invisible to read-back; now writes `" "`).
 
+**Draggable panel (v2.3, 2026-07-19 — CLAUDE.md §10.1):**
+- [x] Collapse toggle moved to a dedicated button, separate from the drag handle, so a
+      click-to-collapse and a click-and-drag gesture can never conflict.
+- [x] Header rectangle is now the drag handle (`OBJPROP_SELECTABLE=true`); dragging
+      repositions every child object together and clamps to stay on-chart, below the
+      native OHLC label.
+- [x] Dragged position persists across restarts via `GV_DASH_X`/`GV_DASH_Y` (same
+      durability class as the whipsaw counter / trail floor).
+- [x] Synthetic battery extended with a drag test (sets the header's raw position,
+      synthesizes `CHARTEVENT_OBJECT_DRAG`, asserts the panel moved, persisted to GV,
+      and restores cleanly): battery is now **31 checks** (27 + 4), 0 failures.
+
 **Residual (optional, first time a human is at a screen):** one real mouse click on the
-header — the only link code can't exercise is MT5's pixel hit-testing that converts a
-physical click into `CHARTEVENT_OBJECT_CLICK`.
+collapse button, and one real click-and-drag on the header — the only things code can't
+exercise are MT5's own pixel hit-testing for `CHARTEVENT_OBJECT_CLICK`/`OBJECT_DRAG`.
 
 ---
 
 ## Final Pre-Deploy (live/demo) Checklist
 
-- [ ] All 8 phases complete; version `v1.8+`; latest commit pushed.
+- [ ] All 8 phases complete; version `v2.3+`; latest commit pushed.
 - [ ] Chart: XAUUSD-VIP M1, one EA instance per symbol only.
 - [ ] Broker spec logged and sane: stops level, tick size/value, min lot 0.01, lot step compatible with progression.
 - [ ] Inputs reviewed against CLAUDE.md §8 defaults; sessions correct for current server-time offset vs GMT.
