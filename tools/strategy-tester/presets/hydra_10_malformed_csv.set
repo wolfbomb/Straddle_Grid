@@ -1,0 +1,27 @@
+; Hydra scenario 10 — malformed LotProgressionCSV rejection (Phase 1 checklist gap)
+; GridLevels=9 but only 5 lot entries given -> ParseLotProgression must fail,
+; OnInit returns INIT_PARAMETERS_INCORRECT, EA never runs. Expect log:
+; "INIT FAIL: LotProgressionCSV has 5 entries but GridLevels=9" and nothing else.
+AUTO_TRADING_ENABLED=true
+MagicNumber=20260713
+GridLevels=9
+GridSpacingUSD=0.70
+FirstLevelOffsetUSD=0.50
+LotProgressionCSV=0.01,0.01,0.02,0.02,0.02
+OCO_Mode=true
+GridTTLMin=45
+BasketTP_USD=15.0
+BasketSL_USD=10.0
+TrailActivate_USD=8.0
+TrailDistance_USD=4.0
+Session1=07:00-10:00
+Session2=12:00-15:00
+ATR_Min_USD=1.5
+ATR_Max_USD=8.0
+MaxSpreadPoints=35
+MinMarginLevelPct=500.0
+MaxDailyLossPct=3.0
+WhipsawWindowSec=300
+WhipsawCooldownMin=60
+MaxWhipsawsPerDay=2
+DashSelfTest=false

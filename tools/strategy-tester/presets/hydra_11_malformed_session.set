@@ -1,0 +1,27 @@
+; Hydra scenario 11 — malformed Session1 rejection (Phase 2 checklist gap)
+; Session1 fails ParseSessionWindow (no dash) -> g_sessionsValid=false ->
+; gate 1 always fails with "malformed session input" and the EA never
+; reaches ARMED for the whole run, regardless of time of day.
+AUTO_TRADING_ENABLED=true
+MagicNumber=20260713
+GridLevels=9
+GridSpacingUSD=0.70
+FirstLevelOffsetUSD=0.50
+LotProgressionCSV=0.01,0.01,0.02,0.02,0.02,0.03,0.04,0.04,0.05
+OCO_Mode=true
+GridTTLMin=45
+BasketTP_USD=15.0
+BasketSL_USD=10.0
+TrailActivate_USD=8.0
+TrailDistance_USD=4.0
+Session1=garbage
+Session2=12:00-15:00
+ATR_Min_USD=1.5
+ATR_Max_USD=8.0
+MaxSpreadPoints=35
+MinMarginLevelPct=500.0
+MaxDailyLossPct=3.0
+WhipsawWindowSec=300
+WhipsawCooldownMin=60
+MaxWhipsawsPerDay=2
+DashSelfTest=false

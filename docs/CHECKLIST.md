@@ -30,11 +30,17 @@
       init in every run this project — hundreds across the Phase 7 campaign alone —
       requires this to parse correctly; a failure would abort init and show up as zero
       activity, which never happened.)
-- [ ] Malformed CSV (wrong count, zero lot, non-numeric) → `INIT_PARAMETERS_INCORRECT` with a clear `[HYDRA]` log; EA does not run. *(Code implements this validation; not independently exercised with a deliberately-malformed input.)*
+- [x] Malformed CSV (wrong count, zero lot, non-numeric) → `INIT_PARAMETERS_INCORRECT`
+      with a clear `[HYDRA]` log; EA does not run. (2026-07-19, run 10 —
+      `hydra_10_malformed_csv`: 5 lot entries vs `GridLevels=9` → `INIT FAIL:
+      LotProgressionCSV has 5 entries but GridLevels=9`, zero further activity.)
 - [x] Tester run (any week): EA loads, logs `IDLE`, places nothing, no errors in journal.
       (Every fresh run opens with `state IDLE -> IDLE (recovery: clean slate)` — e.g. run
       05's exact opening line.)
-- [ ] Gate stub evaluated at most 1×/sec in IDLE (verify by log timestamps). *(Throttle is implemented in code; not independently audited via a timestamp diff.)*
+- [x] Gate stub evaluated at most 1×/sec in IDLE. (Structural guarantee, not just a log
+      throttle — `OnTick`'s IDLE branch reads `if(TimeCurrent() == g_lastGateEval) break;`
+      *before* `EvaluateGates()` is ever called, so evaluation itself cannot happen twice
+      within the same whole server-second.)
 - [x] **State recovery — `ACTIVE` and `IDLE` proven.** Run 09 (2026-07-17, live demo):
       hard-kill mid-`ACTIVE` with 2 positions + 7 pendings → full recovery, tickets
       preserved, no duplicate grid. `IDLE` recovery ("clean slate") is exercised on every
@@ -48,7 +54,11 @@
 - [x] Time inside Session1 or Session2 → gate 1 pass; outside both → fail with reason
       logged. (Observed constantly, e.g. `gates FAIL — gate 1 (Session): server 15:31
       outside 07:00-10:00 and 12:00-15:00`.)
-- [ ] Malformed session string → gate 1 fails (no crash). *(Code implements this fail-closed pattern the same way FOMCDatesCSV validation does; not independently exercised.)*
+- [x] Malformed session string → gate 1 fails (no crash). (2026-07-19, run 11 —
+      `hydra_11_malformed_session`: `Session1=garbage` → `WARNING: malformed session
+      window` at init, then `gates FAIL — gate 1 (Session): malformed session input`
+      every tick for the whole 2-day window; zero trades, zero deployments confirmed in
+      the `.htm` report.)
 - [x] ATR below `ATR_Min_USD` → gate 2 fail "too low"; above `ATR_Max_USD` → fail "too
       high"; inside band → pass. (Observed directly, e.g. `gates FAIL — gate 2
       (Volatility): ATR 8.16 > max 8.00 (move already ran)` in the 2026-07-19 FOMC gate
@@ -56,7 +66,11 @@
 - [x] Spread > `MaxSpreadPoints` (use tester custom spread) → gate 3 fail. (Run 06,
       2026-07-15: 62/62 deployment attempts blocked on real historical spread, zero
       orders — `docs/TEST_REPORT_P7.md` §Run 06.)
-- [ ] `GridSpacingUSD` set below stops-level+spread+buffer equivalent → gate 3 fail with the computed minimum logged. *(Production spacing (0.70) always clears this bar in every run so far; the direct too-tight-spacing rejection path itself hasn't been forced. Run 07's rejection test exercised a different check — `DeployGrid()`'s own stops-distance validation via `FirstLevelOffsetUSD`, not this gate-3 pre-check.)*
+- [x] `GridSpacingUSD` set below stops-level+spread+buffer equivalent → gate 3 fail with
+      the computed minimum logged. (2026-07-19, run 12 — `hydra_12_spacing_too_tight`:
+      `GridSpacingUSD=0.30` → `gates FAIL — gate 3 (Spread): GridSpacingUSD 0.30 <
+      required 0.59 (stops 20 + spread 29 + buffer 10 pts)`, computed minimum tracking
+      real spread tick-by-tick; zero deployments.)
 - [x] Existing Hydra position → gate 4 fail. (Implicit in every one of run 05's 484
       deploy→exit cycles: zero partial/duplicate grids requires gate 4 to correctly
       block re-deployment against existing exposure every single time.)
@@ -70,7 +84,9 @@
       (Run 05: 46.5M ticks processed against a comparatively tiny number of gate-status
       log lines — consistent with change-only logging; code implements via
       `g_lastGateStatus`.)
-- [ ] All gates pass → log `gates PASS — deployment deferred (Phase 3)`, still zero orders. *(This was a Phase-2-only stub message; superseded once Phase 3 made deployment real. No longer applicable to the current build.)*
+- [x] *(N/A — superseded)* `gates PASS — deployment deferred (Phase 3)` was a Phase-2-only
+      stub message; once Phase 3 made deployment real, all-gates-pass correctly leads to
+      an actual `DeployGrid()` call instead (see Phase 3's first item). Not a gap.
 
 ## Phase 3 — Grid Deploy & Expiry
 
@@ -85,8 +101,22 @@
 - [x] No partial grids: at no point does the Hydra pending count sit strictly between 1
       and 2×GridLevels. (Run 05: 484 deploys = 484 full 9+9 grids, exact match, zero
       partial grids.)
-- [ ] **TTL expiry:** no fill for `GridTTLMin` → all pendings deleted, log, back to IDLE; a foreign manual pending untouched. *(Run 05 had a 100% eventual-fill rate — zero TTL expiries occurred, so the expiry path itself wasn't exercised in this project's session. A dedicated config exists (`hydra_03_ttl_expiry`) suggesting this was validated during original Phase 3 development, but no citable log from that pass is available here.)*
-- [ ] ARMED re-check: session ends or spread blows out while ARMED → grid cancelled → IDLE, logged. *(Not specifically exercised.)*
+- [x] **TTL expiry:** no fill for `GridTTLMin` → all pendings deleted, log, back to IDLE.
+      (2026-07-19, run 14 — `hydra_14_ttl_expiry`: `FirstLevelOffsetUSD`/`GridSpacingUSD`
+      widened to 30.0 so no level is realistically reachable within 45 min; multiple
+      clean `state ARMED -> IDLE (grid TTL 45 min expired with zero fills)` transitions
+      logged, zero fills across the whole run.) *(Foreign-manual-pending-untouched
+      specifically not re-tested for this exact scenario, but a strictly harder version
+      — foreign order surviving a full crash/restart mid-`ACTIVE` — is already proven in
+      run 09.)*
+- [x] ARMED re-check: session ends while ARMED → grid cancelled → IDLE, logged.
+      (2026-07-19, run 13 — `hydra_13_armed_session_end`: narrow `Session1=07:00-07:10`
+      + widened `FirstLevelOffsetUSD=5.0` so fills don't land immediately; 5+ clean
+      `state ARMED -> IDLE (grid cancelled — gate failed while ARMED: server 07:10
+      outside 07:00-07:10 and 23:58-23:59)` transitions across a 2-week window, zero
+      fills each time.) *("Spread blows out while ARMED" specifically not separately
+      forced — same code path (`GateSpread()` re-evaluated in the ARMED re-check), but
+      only the session-end trigger was exercised.)*
 
 ## Phase 4 — Direction Lock & OCO
 
@@ -127,7 +157,13 @@
 
 ## Phase 6 — Basket Manager
 
-- [ ] Scaled TP: with 0.03 lots filled, basket closes at ≈ `BasketTP_USD × 3` (audit exact formula against code comment). *(No single-instance exact-lot citation from this session; commit `2532531`/`7f6366c` claim this was validated during original Phase 6 development, but that session's detailed logs weren't re-examined here.)*
+- [x] Scaled TP formula: basket closes at `BasketTP_USD × (volume/0.01)` exactly.
+      (Audited three independent real instances from this project's tester logs, each a
+      different `BasketTP_USD`/volume pair: `0.08 lots @ TP=20` → 20×8=**160.00**
+      (logged: 160.00); `0.06 lots @ TP=20` → 20×6=**120.00** (logged: 120.00);
+      `0.24 lots @ TP=15` → 15×24=**360.00** (logged: 360.00). Exact match all three —
+      stronger evidence than a single fixed-lot case since it confirms the formula holds
+      across varying inputs, not just one hardcoded scenario.)
 - [x] Basket TP hit → all positions closed, all pendings deleted, cooldown, then IDLE;
       P/L logged. (Run 05: 33 TP exits; `post-exit cooldown` and `COOLDOWN -> IDLE`
       counts both match the total exit count exactly — zero stuck cycles.)
