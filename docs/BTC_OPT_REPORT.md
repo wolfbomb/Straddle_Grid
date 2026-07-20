@@ -166,59 +166,138 @@ campaign — a 30-cell, 100%-training-positive, mechanistically-explicable regio
 out-of-sample. This is a stronger rejection than candidate C alone suggested: it isn't
 one unlucky point, the entire region doesn't hold.
 
-## Conclusions (2026-07-19, final)
+## Sweep 4 — ATR band (25 combinations), including a caught-and-fixed design flaw
 
-1. **No candidate from any of the three sweeps survived out-of-sample validation as a
-   real edge.** 7 candidates tested total (2 exits-only, 2 entry-only, 3 joint); 6
-   rejected outright (sign flip, one of them the worst OOS performer of the whole
-   campaign), 1 survived at only near-breakeven (PF 1.01, Sharpe ≈ 0). This is the same
+**v1 (flawed):** first attempt fixed exits at `BasketTP_USD=6.0`/`BasketSL_USD=4.0` (the
+`hydra_15_btcusd_smoke.set` first-pass values) without checking them against Sweep 1's
+own results first — that exact pair was already shown there to be one of the **worst**
+combinations in the entire exits grid (-$1,767.54). Result: **0/25 combinations
+positive**, every single ATR band tested lost money. This wasn't a finding about the
+ATR band — it was the bad fixed exits dragging the whole grid negative. Caught before
+any validation was wasted on it, and re-run.
+
+**v2 (corrected):** same 25-combo grid (`ATR_Min_USD` ∈ {20,40,60,80,100},
+`ATR_Max_USD` ∈ {150,200,250,300,350}), exits fixed at Sweep 1's actual validated
+candidate (TP=6/SL=2) instead. **20/25 combinations positive (80%)** — the highest hit
+rate of any sweep in the campaign.
+
+**Full grid (Profit):**
+
+| Min \ Max | 150 | 200 | 250 | 300 | 350 |
+|---|---|---|---|---|---|
+| 20 | 541.2 | 864.7 | 420.0 | 441.3 | 308.0 |
+| 40 | 501.0 | 824.5 | 379.8 | 401.1 | 267.8 |
+| **60** | 653.8 | **977.3** | 532.6 | 553.9 | 420.6 |
+| 80 | 324.4 | 388.6 | -9.7 | 11.6 | -121.7 |
+| 100 | 65.7 | 173.3 | -225.0 | -242.4 | -375.7 |
+
+**This is the cleanest surface in the whole campaign.** `Max=200` beats both its `150`
+and `250` neighbors at **every** tested `Min` value — a genuine interior ridge, not a
+boundary artifact — and `Min=60` beats both its `40` and `80` neighbors too. The peak
+(`Min=60/Max=200`, +$977.27, PF 1.131) sits in the interior of the grid on both axes
+simultaneously, the most textbook-clean optimization result found anywhere in this
+campaign — better-looking than the SL=2 region from Sweep 3.
+
+### Out-of-sample validation (held-out window)
+
+| Candidate | Training | Held-out | Verdict |
+|---|---|---|---|
+| H: Min=60/Max=200 (interior peak) | +977.27, PF 1.131 | **-359.98, PF 0.84, Sharpe -3.52** | **REJECTED** |
+| I: Min=40/Max=200 (ridge robustness check) | +824.50, PF 1.108 | **-299.37, PF 0.87, Sharpe -2.75** | **REJECTED** |
+
+**Both failed.** This is the third time a within-training pattern that looked
+progressively more convincing — an isolated spike, then a 30-cell coherent region, now
+a clean interior-maximum ridge — has failed the same way against held-out data. Surface
+smoothness and interior-maximum shape are not, on their own, protection against
+overfitting either.
+
+## Sweep 5 — lot progression × GridLevels (5 candidates, real ticks)
+
+**Method:** `LotProgressionCSV` is a string input the native optimizer can't sweep, and
+`Straddle_Grid.mq5`'s `ParseLotProgression` requires its element count to exactly equal
+`GridLevels` (init fails otherwise) — so the two must vary together, one real-tick pass
+per pair, via a custom driver (script removed after review). Exits fixed at TP=6/SL=2,
+ATR band fixed at the original first-pass default (40/250 — Sweep 4 tested 25
+alternatives and none survived validation, so there's no better-known choice to fix at
+instead). Five fixed, static (non-adaptive) arrays tested — no runtime martingale,
+consistent with CLAUDE.md's hard rule:
+
+| Variant | Levels | Shape | Profit | PF | eqDD % |
+|---|---|---|---|---|---|
+| **control_9** (current production array) | 9 | ascending pyramid | **+379.80** | 1.05 | 7.16 |
+| more_13 | 13 | finer ascending | +323.85 | 1.04 | 7.84 |
+| fewer_5 | 5 | steeper ascending | -53.22 | 0.99 | 10.80 |
+| flat_9 | 9 | uniform 0.02 | -380.02 | 0.96 | 10.08 |
+| frontload_9 | 9 | descending | -882.63 | 0.94 | **21.05** (worst) |
+
+**The current production array won.** None of the four alternatives beat it on
+training data — flattening the size distribution, front-loading it, or changing the
+level count all did worse, several substantially so (front-loading in particular
+produced the worst drawdown of any candidate in this sweep, 21%). `control_9` is
+literally Sweep 1's candidate B, so its out-of-sample result is already known: the same
+weak, near-breakeven survivor (+$26.46, PF 1.01, Sharpe ≈ 0). No alternative here even
+looked promising enough on training data to be worth a fresh validation pass — all four
+are dominated by a baseline that itself isn't a real edge.
+
+## Conclusions (2026-07-20, final)
+
+1. **No candidate from any of the five sweeps survived out-of-sample validation as a
+   real edge.** 9 candidates tested total (2 exits-only, 2 entry-only, 3 joint, 2 ATR
+   band); 8 rejected outright (sign flip), 1 survived at only near-breakeven (PF 1.01,
+   Sharpe ≈ 0) — and that one candidate is also the best of everything tried on the
+   lot-progression axis, so it isn't superseded by anything else either. Same
    conclusion class as XAUUSD-VIP's campaign, reached with a stricter method (a real
    held-out window reserved from the start, which the gold campaign never had).
-2. **262 real-tick backtests ran across this campaign** (25 + 12 + 225 sweep combos) +
-   7 out-of-sample validation passes = **269 real-tick runs total**, `Model=4` throughout,
-   no OHLC-model risk anywhere.
-3. **The central lesson, reinforced twice now:** within-training coherence — even a
-   30-cell, 100%-positive, mechanistically-sensible region spanning two session
-   variants and every tested TP/spacing — is not the same test as held-out validation
-   and does not guarantee real edge. The joint sweep looked more convincing than
-   anything in Sweeps 1–2, and it still failed completely.
-4. **Every parameter axis this EA exposes for BTCUSD has now been searched**: exits
-   alone, entry-timing alone, and exits×spacing jointly, across all four candidate
-   session windows. None produced anything that survives contact with unseen data.
-5. **Live/demo deployment on BTCUSD remains unjustified.** Nothing tested across three
-   sweeps and seven validations beats "don't trade" with confidence that survives
+2. **312 real-tick backtests ran across this campaign** (25 + 12 + 225 + 25 + 5 sweep
+   combos) + 9 out-of-sample validation passes = **321 real-tick runs total**, `Model=4`
+   throughout, no OHLC-model risk anywhere.
+3. **The central lesson, reinforced a third time:** within-training coherence — an
+   isolated spike, a 30-cell 100%-positive region, and now a clean interior-maximum
+   ridge — is not the same test as held-out validation and does not guarantee real
+   edge, no matter how statistically clean the training-window shape looks.
+4. **A real design-flaw catch mid-campaign is itself worth recording:** Sweep 4's first
+   attempt silently confounded an entire 25-combo grid by fixing exits at a
+   already-known-bad pair from Sweep 1, producing a uniformly negative (0/25) result
+   that would have read as "ATR band doesn't matter" if not checked against prior
+   sweep data before use. Always cross-check a sweep's *fixed* parameters against
+   earlier results before trusting what varies.
+5. **Every parameter axis this EA exposes for BTCUSD has now been searched**: exits,
+   entry-timing, exits×spacing jointly, ATR band, and lot progression/GridLevels. None
+   produced anything that survives contact with unseen data.
+6. **Live/demo deployment on BTCUSD remains unjustified.** Nothing tested across five
+   sweeps and nine validations beats "don't trade" with confidence that survives
    held-out data.
 
 ## Recommended next steps (user decision)
 
-1. **Parameter tuning on the always-on trigger is likely exhausted for this
-   instrument.** Three independent sweep designs (single-axis ×2, joint) and every
-   session variant have now failed to produce a validated edge — same shape as gold's
-   conclusion, reached faster. Grinding this same space further (e.g. `ATR_Min/Max_USD`,
-   lot progression, `GridLevels`) is technically still untested but low-expected-value
-   given how uniformly negative the out-of-sample results have been across everything
-   tried so far.
+1. **Parameter tuning is now exhausted for this instrument.** Every axis the EA
+   exposes — exits, entry-timing, exits×spacing jointly, ATR band, lot progression —
+   has been swept, several ways, with a genuine held-out check every time. Nothing
+   survived. There is no remaining parameter-tuning direction left to try in good
+   faith; further grid sweeps on this trigger would be re-mining the same
+   already-negative result.
 2. **A calendar/event-gated trigger** (mirroring FOMC-Only Mode, CLAUDE.md §5.1) is the
-   more promising remaining direction — it's the one thing that changed gold's picture,
-   even if only to a fragile, unconfirmed lead. This is real EA development (a new
-   CLAUDE.md spec section, new inputs/gate logic, its own validation campaign), not a
-   config sweep, and would need its own scoping decision before starting.
-3. **BTCUSD's history is short and now substantially mined.** Every months-long window
-   used across this campaign overlaps heavily with every other; there isn't much
+   only direction not yet tried — it's the one thing that changed gold's picture, even
+   if only to a fragile, unconfirmed lead. This is real EA development (a new CLAUDE.md
+   spec section, new inputs/gate logic, its own validation campaign), not a config
+   sweep, and would need its own scoping decision before starting.
+3. **BTCUSD's history is short and now heavily mined.** Every months-long window used
+   across this campaign overlaps substantially with every other; there isn't much
    genuinely independent backtest data left on this account. If BTCUSD is pursued
-   further, prospective (forward/demo) tracking — the same conclusion `OPT_REPORT.md`
-   reached for gold's FOMC-only mode — is likely more honest than continuing to
-   backtest against an increasingly-reused window.
+   further at all, prospective (forward/demo) tracking — the same conclusion
+   `OPT_REPORT.md` reached for gold's FOMC-only mode — is more honest than continuing
+   to backtest against an increasingly-reused window.
 4. Per CLAUDE.md's hard rules, none of this changes any compiled default —
    `AUTO_TRADING_ENABLED` stays `false`, and nothing here has been written into
    CLAUDE.md's canonical Inputs block.
 
 ## Note on removed artifacts (2026-07-20)
 
-The per-sweep `.ini` configs (`hydra_opt_04`–`hydra_opt_14`), the custom Python driver
-(`entry_sweep_btc.py`), and the raw per-combo result CSVs (`docs/opt/btc_*.csv`) were
-deleted after this report was written up — this document is the sole surviving record
-of the campaign. Every number needed to understand what was tried and found is
-reproduced in the tables above; nothing here can be re-run without recreating those
-files from scratch. `hydra_15_btcusd_smoke.set`/`.ini` (the first-pass, non-optimized
-geometry) were kept — they're the smoke test, not part of the optimization campaign.
+The per-sweep `.ini` configs (`hydra_opt_04`–`hydra_opt_18`), the custom Python drivers
+(`entry_sweep_btc.py`, `lotprogression_sweep_btc.py`), and the raw per-combo result
+CSVs (`docs/opt/btc_*.csv`) were deleted after this report was written up — this
+document is the sole surviving record of the campaign. Every number needed to
+understand what was tried and found is reproduced in the tables above; nothing here
+can be re-run without recreating those files from scratch. `hydra_15_btcusd_smoke.set`/
+`.ini` (the first-pass, non-optimized geometry) were kept — they're the smoke test, not
+part of the optimization campaign.
