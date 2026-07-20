@@ -65,20 +65,30 @@ continuously through December — that would block sibling test runs for 5 month
 ~1 day after — verified registered and `Ready` with correct next-run times. Everything
 logs to `tools/fomc-live/tracking.log`.
 
+**⏸ PAUSED (2026-07-20):** all 8 scheduled tasks are currently **disabled** — user
+decision, indefinite pause ("for the meantime"). The Jul 28 attach will **not** fire
+automatically while this holds. Task definitions are untouched, so
+`Enable-ScheduledTask` on all 8 restores the original schedule exactly whenever you're
+ready to resume. **This means forward-tracking is not currently running at all** — the
+one remaining path to confirming the FOMC-only lead is inactive until unpaused.
+
 **What's actually needed from you:**
-- Nothing right now — the next task fires automatically 2026-07-28 06:00 local.
-- If you change `Straddle_Grid.mq5` before then, **recompile the data-folder copy
-  manually** — the scheduled tasks don't recompile.
-- Worth a glance at `tools/fomc-live/tracking.log` after July 28 to confirm the attach
-  actually succeeded (unattended launches can fail silently if the terminal is stuck).
-- CLAUDE.md §5.1's forward-tracking table gets filled in as each date resolves.
+
+- Nothing fires until you decide to resume — no clock is ticking right now.
+- When you resume: if `Straddle_Grid.mq5` changed while paused, **recompile the
+  data-folder copy manually** first — the scheduled tasks don't recompile.
+- After resuming, worth a glance at `tools/fomc-live/tracking.log` after the next
+  attach to confirm it actually succeeded (unattended launches can fail silently if the
+  terminal is stuck).
+- CLAUDE.md §5.1's forward-tracking table gets filled in as each date resolves, once
+  tracking is live again.
 
 ## Upcoming
 
 | When | Task |
 |---|---|
-| 2026-07-28 06:00 | Scheduled: attach for the Jul 29 FOMC meeting |
-| 2026-07-30 06:00 | Scheduled: detach, log the outcome |
-| Ongoing | Repeat for Sep 16 / Oct 28 / Dec 9 automatically |
+| *(paused)* | Attach for the Jul 29 FOMC meeting — was 2026-07-28 06:00, now on hold |
+| *(paused)* | Detach, log the outcome — was 2026-07-30 06:00, now on hold |
+| *(paused)* | Sep 16 / Oct 28 / Dec 9 cycles — all on hold until resumed |
 | Optional, next time at a screen | One physical collapse-button click + one drag on the dashboard |
-| Pre-live | 1-week demo soak — blocked until forward-tracking confirms a real edge |
+| Pre-live | 1-week demo soak — blocked until forward-tracking confirms a real edge (and forward-tracking itself is currently paused) |
