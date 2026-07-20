@@ -136,6 +136,12 @@ after, freeing the terminal for sibling use the rest of the time. Every run appe
 `tools/fomc-live/tracking.log`. If `Straddle_Grid.mq5` changes before the next scheduled
 date, recompile the data-folder copy manually — the scheduled tasks do not recompile.
 
+**Paused (2026-07-20):** all 8 scheduled tasks are currently **disabled**
+(`Disable-ScheduledTask`, user decision — indefinite pause, "for the meantime") ahead
+of the next scheduled attach (`2026.07.29`). Definitions are untouched, so re-enabling
+(`Enable-ScheduledTask`) restores the original schedule exactly. Do not treat the
+forward-tracking log below as active while this pause is in effect.
+
 **Forward-tracking log:**
 | Date | Attach task | Deployed? | Outcome |
 |---|---|---|---|
